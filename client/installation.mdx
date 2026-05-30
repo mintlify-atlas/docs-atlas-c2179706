@@ -1,0 +1,128 @@
+---
+title: "Installing and configuring @mercuryworkshop/epoxy-tls"
+sidebarTitle: "Installation"
+description: "Install the Epoxy TLS npm package, choose the right bundle variant for your project, and optionally build from source using Rust nightly."
+---
+
+`@mercuryworkshop/epoxy-tls` is available on npm and ships five package exports covering two build variants (full and minimal) in both bundled and non-bundled forms. Choose the variant that best fits your bundle size constraints and asset-serving setup, then follow the build-from-source instructions if you need to compile the WASM yourself.
+
+## Install via package manager
+
+<CodeGroup>
+
+```bash npm
+npm install @mercuryworkshop/epoxy-tls
+```
+
+```bash yarn
+yarn add @mercuryworkshop/epoxy-tls
+```
+
+```bash pnpm
+pnpm add @mercuryworkshop/epoxy-tls
+```
+
+</CodeGroup>
+
+## Package exports
+
+The package exposes five named exports. Each export path resolves to a different combination of build variant and WASM delivery method.
+
+| Export path | Build | WASM delivery |
+|---|---|---|
+| `.` / `./epoxy-bundled` | Full | Bundled as base64 |
+| `./epoxy` | Full | Separate `.wasm` file |
+| `./minimal-epoxy-bundled` | Minimal | Bundled as base64 |
+| `./minimal-epoxy` | Minimal | Separate `.wasm` file |
+
+### `.` and `./epoxy-bundled` — full build, WASM bundled (default)
+
+```javascript
+import init, { EpoxyClient, EpoxyClientOptions, EpoxyHandlers } from "@mercuryworkshop/epoxy-tls";
+// or equivalently:
+import init, { EpoxyClient, EpoxyClientOptions, EpoxyHandlers } from "@mercuryworkshop/epoxy-tls/epoxy-bundled";
+
+await init(); // No path required — WASM is embedded in the JS as base64
+```
+
+This is the default import (also set as `"browser"`, `"module"`, and `"main"` in `package.json`). Use it when you want the simplest setup and don't mind the extra base64 overhead in your JS bundle.
+
+### `./epoxy` — full build, WASM loaded separately
+
+```javascript
+import init, { EpoxyClient, EpoxyClientOptions, EpoxyHandlers } from "@mercuryworkshop/epoxy-tls/epoxy";
+
+// Point init() at the .wasm file you serve as a static asset
+await init({ module_or_path: "/assets/epoxy.wasm" });
+```
+
+Use this export when you want to serve the WASM binary as a standalone file — for example, to take advantage of browser caching or to avoid inflating your JS bundle with a large base64 string.
+
+### `./minimal-epoxy-bundled` — minimal build, WASM bundled
+
+```javascript
+import init, { EpoxyClient, EpoxyClientOptions } from "@mercuryworkshop/epoxy-tls/minimal-epoxy-bundled";
+
+await init();
+```
+
+The minimal build includes HTTP/1 fetch and raw TLS/TCP/UDP streams, but excludes WebSocket support and HTTP/2. Use this export when bundle size is a priority and you do not need WebSocket connections or HTTP/2.
+
+### `./minimal-epoxy` — minimal build, WASM loaded separately
+
+```javascript
+import init, { EpoxyClient, EpoxyClientOptions } from "@mercuryworkshop/epoxy-tls/minimal-epoxy";
+
+await init({ module_or_path: "/assets/epoxy-minimal.wasm" });
+```
+
+The smallest possible configuration: minimal feature set with the WASM binary served as a separate file.
+
+## Bundle variants
+
+The package ships in two build variants that differ in which Epoxy features are included.
+
+**Full build** (`./epoxy`, `./epoxy-bundled`, `.`)
+Includes all features: HTTP/1 and HTTP/2 fetch with gzip and Brotli decompression, WebSocket connections via `connect_websocket`, and raw TLS/TCP/UDP streams.
+
+**Minimal build** (`./minimal-epoxy`, `./minimal-epoxy-bundled`)
+Includes HTTP/1 fetch and raw TLS/TCP/UDP streams only. `EpoxyHandlers` and `connect_websocket` are not available. Produces a significantly smaller WASM binary.
+
+<Tip>
+  If you do not need WebSocket proxy support or HTTP/2, the minimal bundled export (`./minimal-epoxy-bundled`) gives you the best balance of simplicity and bundle size.
+</Tip>
+
+For a detailed feature-by-feature comparison, see the [Bundle variants](/client/bundle-variants) page.
+
+## Building from source
+
+If you want to compile the WASM binary yourself — for example, to apply custom patches or to use the latest unreleased code — you can build the client from the repository.
+
+### Prerequisites
+
+<Note>
+  The build requires **Rust nightly** with the `wasm32-unknown-unknown` target and the `rust-std` component. Install Rust via [rustup](https://rustup.rs) and then run:
+
+  ```bash
+  rustup toolchain install nightly
+  rustup target add wasm32-unknown-unknown --toolchain nightly
+  rustup component add rust-std --toolchain nightly
+  ```
+</Note>
+
+The build script also depends on the following tools:
+
+- **`wasm-bindgen`** — install via Cargo: `cargo install wasm-bindgen-cli`
+- **`wasm-opt`** — get the binary from [WebAssembly/binaryen releases](https://github.com/WebAssembly/binaryen/releases)
+- **`jq`** — install from your distribution's package repository
+- **`git`** — install from your distribution's package repository
+
+### Run the build
+
+From the `client/` directory of the cloned repository, run:
+
+```bash
+bash build.sh
+```
+
+The compiled WASM binary and JavaScript bindings will be placed in the `pkg/` directory. You can then import directly from `pkg/` during local development or publish the contents of `pkg/` to npm.

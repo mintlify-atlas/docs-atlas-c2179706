@@ -1,0 +1,147 @@
+---
+title: "Wisp protocol configuration for epoxy-server"
+sidebarTitle: "Wisp Config"
+description: "Reference for the [wisp] config section — Wisp v2 extensions, password and certificate authentication, flow-control buffer size, and MOTD settings."
+---
+
+The `[wisp]` section of the epoxy-server configuration file controls everything related to the Wisp protocol layer: which version of the protocol is negotiated, which Wisp v2 extensions are advertised to clients, how authentication is enforced, and what message of the day is sent on connect. These settings are independent of the network listener (configured in `[server]`) and the per-stream filtering rules (configured in `[stream]`).
+
+## `[wisp]` fields
+
+<ParamField path="wisp_v2" type="boolean" default="true">
+  Enable Wisp version 2 handshaking and extension negotiation. When `true` (the default), the server performs the Wisp v2 handshake and advertises the extensions listed in `extensions`. When `false`, the server falls back to Wisp v1, which has no extension support.
+
+  Disable this only when you need to support clients that do not implement Wisp v2.
+</ParamField>
+
+<ParamField path="extensions" type="string[]" default='["udp", "motd"]'>
+  List of Wisp v2 protocol extensions advertised during the handshake. Only applies when `wisp_v2 = true`.
+
+  | Value | Description |
+  |-------|-------------|
+  | `"udp"` | Enables Wisp v2 UDP stream support |
+  | `"motd"` | Sends the `motd_extension` string to clients on connect |
+  | `"wispnet"` | Unofficial Wispnet-like extension for inter-server routing |
+
+  ```toml
+  extensions = ["udp", "motd"]
+  ```
+
+  The authentication extension (`"password"` or `"certificate"`) is not listed here — it is configured separately via the `auth_extension` field.
+</ParamField>
+
+<ParamField path="auth_extension" type="string | null" default="null">
+  Wisp v2 authentication extension to advertise. When set, clients must complete the chosen authentication challenge during the Wisp v2 handshake. Requires `wisp_v2 = true`.
+
+  | Value | Description |
+  |-------|-------------|
+  | `"password"` | Username/password authentication — see `password_extension_users` |
+  | `"certificate"` | Ed25519 public-key authentication — see `certificate_extension_keys` |
+  | `null` | No authentication (default) |
+
+  Only one authentication method can be active at a time.
+</ParamField>
+
+<ParamField path="buffer_size" type="integer" default="128">
+  Flow-control buffer size advertised to clients in the Wisp handshake, expressed as a number of packets. Clients use this value to determine how many packets they may send before waiting for the server to acknowledge receipt.
+
+  Increase this value to improve throughput on high-latency connections. Very large values may increase memory usage under load.
+</ParamField>
+
+<ParamField path="prefix" type="string" default='""'>
+  URL path prefix for the Wisp endpoint. The server strips this prefix before handling the WebSocket upgrade. Do **not** include a trailing slash.
+
+  ```toml
+  # Wisp endpoint will be reachable at /wisp
+  prefix = "/wisp"
+  ```
+
+  Leave empty (the default) to serve Wisp at the root path `/`.
+</ParamField>
+
+<ParamField path="allow_wsproxy" type="boolean" default="true">
+  Allow legacy [wsproxy](https://github.com/mercuryworkshop/wsproxy) connections in addition to the Wisp protocol. wsproxy is an older, simpler tunneling protocol that predates Wisp. Disable this if you only want to accept Wisp clients and want to reduce attack surface.
+</ParamField>
+
+<ParamField path="password_extension_users" type="object" default="{}">
+  Map of `username → password` pairs used when `auth_extension = "password"`. Clients must supply a matching username and password during the Wisp v2 handshake to be permitted.
+
+  ```toml
+  [wisp.password_extension_users]
+  alice = "correct-horse-battery-staple"
+  bob   = "hunter2"
+  ```
+
+  This field is omitted from the serialized default config when it is empty.
+</ParamField>
+
+<ParamField path="password_extension_required" type="boolean" default="true">
+  When `true` (the default) and `auth_extension = "password"`, authentication is mandatory — clients that do not present valid credentials are rejected. Set to `false` to make authentication optional (clients that skip the challenge are still allowed).
+</ParamField>
+
+<ParamField path="certificate_extension_keys" type="string[]" default="[]">
+  Paths to Ed25519 public key files in PEM format, used when `auth_extension = "certificate"`. Clients must possess the corresponding private key and prove ownership during the Wisp v2 handshake.
+
+  ```toml
+  certificate_extension_keys = [
+    "/etc/epoxy/keys/alice.pub.pem",
+    "/etc/epoxy/keys/bob.pub.pem"
+  ]
+  ```
+
+  This field is omitted from the serialized default config when it is empty.
+</ParamField>
+
+<ParamField path="certificate_extension_required" type="boolean" default="true">
+  When `true` (the default) and `auth_extension = "certificate"`, certificate authentication is mandatory. Set to `false` to permit connections from clients that do not provide a certificate.
+</ParamField>
+
+<ParamField path="motd_extension" type="string" default='"epoxy_server (<version>)"'>
+  The message of the day sent to clients via the Wisp v2 MOTD extension. Only delivered when `"motd"` is included in `extensions`. The default value includes the server version string, git SHA, and compiler info.
+
+  ```toml
+  motd_extension = "Welcome to my Wisp server!"
+  ```
+</ParamField>
+
+## Authentication examples
+
+### Password authentication
+
+```toml
+[wisp]
+wisp_v2 = true
+extensions = ["udp", "motd"]
+auth_extension = "password"
+password_extension_required = true
+motd_extension = "Authentication required."
+
+[wisp.password_extension_users]
+alice = "correct-horse-battery-staple"
+bob   = "hunter2"
+```
+
+### Certificate authentication
+
+Generate an Ed25519 keypair for each user (for example with `openssl`), distribute the private key to the client, and add the public key path to the server config:
+
+```bash
+openssl genpkey -algorithm ed25519 -out alice.key.pem
+openssl pkey -in alice.key.pem -pubout -out alice.pub.pem
+```
+
+```toml
+[wisp]
+wisp_v2 = true
+extensions = ["udp", "motd"]
+auth_extension = "certificate"
+certificate_extension_required = true
+certificate_extension_keys = [
+  "/etc/epoxy/keys/alice.pub.pem"
+]
+motd_extension = "Certificate authentication required."
+```
+
+<Warning>
+  With `auth_extension = "password"`, usernames and passwords are transmitted in plaintext at the **Wisp protocol level**. If epoxy-server is exposed directly over plain TCP without TLS, credentials are visible to any network observer. Always ensure the connection between epoxy-client and epoxy-server is encrypted — either by using a TLS socket type (`"tlstcp"` / `"tlsunix"`) in `[server]`, or by placing epoxy-server behind a TLS-terminating reverse proxy such as nginx or Caddy. Note that epoxy-client itself also performs an inner TLS handshake for destination traffic, but that does not protect the Wisp authentication exchange.
+</Warning>

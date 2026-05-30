@@ -1,0 +1,210 @@
+---
+title: "Making HTTP requests with EpoxyClient.fetch()"
+sidebarTitle: "Fetch"
+description: "Send HTTP requests through a Wisp proxy using EpoxyClient.fetch(), a drop-in replacement for the browser Fetch API with redirect control and raw header access."
+---
+
+`EpoxyClient.fetch()` lets you make HTTP requests through a Wisp proxy directly from the browser. Its options object mirrors the standard `fetch()` API, so you can swap it in with minimal changes to existing code. The method returns a standard `Response` object extended with a few extra properties that expose proxy-specific information.
+
+## Basic GET request
+
+The simplest call needs only a URL. Like the native `fetch()`, the method defaults to `GET` and follows redirects automatically.
+
+```javascript
+import init, { EpoxyClient, EpoxyClientOptions } from "@mercuryworkshop/epoxy-tls";
+
+await init();
+
+const options = new EpoxyClientOptions();
+options.user_agent = navigator.userAgent;
+options.wisp_v2 = true;
+
+const client = new EpoxyClient("wss://wisp.mercurywork.shop", options);
+
+const resp = await client.fetch("https://example.com");
+console.log(await resp.text());
+```
+
+## Setting the request method and headers
+
+Pass `method` and `headers` in the options object. `headers` can be either a plain object or a `Headers` instance.
+
+```javascript
+// Plain object headers
+const resp = await client.fetch("https://httpbin.org/post", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "X-Custom-Header": "my-value",
+  },
+  body: JSON.stringify({ hello: "world" }),
+});
+
+// Headers instance
+const resp2 = await client.fetch("https://httpbin.org/get", {
+  headers: new Headers({ Accept: "application/json" }),
+});
+```
+
+<Note>
+  The `Host` header is always managed by Epoxy and will be ignored if you try to set it manually.
+</Note>
+
+## Sending request bodies
+
+Every body type supported by the standard Fetch API is accepted.
+
+<Tabs>
+  <Tab title="String">
+    ```javascript
+    const resp = await client.fetch("https://httpbin.org/post", {
+      method: "POST",
+      body: "raw string body",
+    });
+    ```
+  </Tab>
+  <Tab title="Uint8Array / ArrayBuffer">
+    ```javascript
+    const encoded = new TextEncoder().encode("binary body");
+
+    const resp = await client.fetch("https://httpbin.org/post", {
+      method: "POST",
+      body: encoded, // Uint8Array or ArrayBuffer both work
+    });
+    ```
+  </Tab>
+  <Tab title="URLSearchParams">
+    ```javascript
+    const params = new URLSearchParams("key=value&other=data");
+
+    const resp = await client.fetch("https://httpbin.org/post", {
+      method: "POST",
+      body: params,
+      // Content-Type is set to application/x-www-form-urlencoded automatically
+    });
+    ```
+  </Tab>
+  <Tab title="FormData">
+    ```javascript
+    const form = new FormData();
+    form.append("username", "alice");
+    form.append("file", fileInput.files[0]);
+
+    const resp = await client.fetch("https://httpbin.org/post", {
+      method: "POST",
+      body: form,
+      // Content-Type multipart/form-data boundary is set automatically
+    });
+    ```
+  </Tab>
+  <Tab title="ReadableStream">
+    ```javascript
+    // Stream data progressively without buffering the whole body
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("chunk one "));
+        controller.enqueue(new TextEncoder().encode("chunk two"));
+        controller.close();
+      },
+    });
+
+    const resp = await client.fetch("https://httpbin.org/post", {
+      method: "POST",
+      duplex: "half",
+      body: stream,
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## Redirect handling
+
+Control redirect behavior with the `redirect` option.
+
+| Value | Behavior |
+|---|---|
+| `"follow"` | Follow redirects automatically up to `redirect_limit` hops (default) |
+| `"manual"` | Return the redirect response immediately without following it |
+| `"error"` | Return the redirect response without following it (same as `"manual"`) |
+
+```javascript
+// Default: follow redirects transparently
+const resp = await client.fetch("https://httpbin.org/redirect/3");
+console.log(resp.redirected); // true
+console.log(resp.url);        // final URL after redirects
+
+// Capture the redirect response directly
+const redir = await client.fetch("https://httpbin.org/redirect/1", {
+  redirect: "manual",
+});
+console.log(redir.status);                   // 302
+console.log(redir.headers.get("location")); // redirect target
+```
+
+The default `redirect_limit` is 10 hops. You can raise or lower it on the client instance at any time:
+
+```javascript
+client.redirect_limit = 20;
+```
+
+## Response properties
+
+The response object is a standard `web_sys::Response` extended with three extra properties:
+
+| Property | Type | Description |
+|---|---|---|
+| `.status` | `number` | HTTP status code |
+| `.headers` | `Headers` | Standard `Headers` object (merged duplicates) |
+| `.url` | `string` | Final URL after all redirects |
+| `.redirected` | `boolean` | `true` if at least one redirect was followed |
+| `.rawHeaders` | `object` | Raw header map; values are strings or arrays of strings for repeated headers |
+
+```javascript
+const resp = await client.fetch("https://httpbin.org/get");
+
+console.log(resp.status);     // 200
+console.log(resp.url);        // "https://httpbin.org/get"
+console.log(resp.redirected); // false
+
+// rawHeaders preserves duplicate header values as an array
+console.log(resp.rawHeaders["set-cookie"]); // ["a=1", "b=2"] or "a=1"
+```
+
+## Streaming the response body
+
+Response bodies are exposed as `ReadableStream<Uint8Array>` and can be read incrementally without buffering the full payload.
+
+```javascript
+const resp = await client.fetch("https://httpbin.org/stream-bytes/1024");
+
+const reader = resp.body.getReader();
+const decoder = new TextDecoder();
+
+while (true) {
+  const { value, done } = await reader.read();
+  if (done) break;
+  process(decoder.decode(value, { stream: true }));
+}
+```
+
+Alternatively, pipe through `TextDecoderStream` for a cleaner streaming pattern:
+
+```javascript
+const reader = resp.body
+  .pipeThrough(new TextDecoderStream())
+  .getReader();
+
+while (true) {
+  const { value, done } = await reader.read();
+  if (done) break;
+  console.log(value); // decoded string chunk
+}
+```
+
+<Warning>
+  When certificate validation is disabled (`options.disable_certificate_validation = true`) or custom PEM certificate files are supplied (`options.pem_files`), every response will carry an `X-Epoxy-CertsTampered: true` header. Inspect this header to detect that TLS verification was modified before trusting the response.
+</Warning>
+
+<Note>
+  HTTP/2 support (multiplexed streams, header compression) is only available in the **full** build of Epoxy TLS. The minimal build uses HTTP/1.1 exclusively. See [Bundle Variants](/client/bundle-variants) for details.
+</Note>

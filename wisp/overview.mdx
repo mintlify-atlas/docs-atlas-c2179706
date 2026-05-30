@@ -1,0 +1,60 @@
+---
+title: "wisp-mux: Rust library for Wisp protocol clients and servers"
+sidebarTitle: "Overview"
+description: "wisp-mux is an async Rust crate for building Wisp v1/v2 clients and servers, with an extension system, multiple WebSocket backends, and WASM support."
+---
+
+`wisp-mux` is the core Rust library behind the Epoxy TLS project's Wisp implementation. It exposes two high-level types—`ClientMux` and `ServerMux`—that handle the full Wisp handshake, stream multiplexing, flow control, and protocol-extension negotiation over any WebSocket-compatible transport. Whether you are writing a browser proxy client, a server-side gateway, or an embedded device, `wisp-mux` provides the building blocks to speak the Wisp protocol correctly.
+
+## What wisp-mux provides
+
+- **`ClientMux`** — connects to a Wisp server, negotiates the protocol version and extensions, and lets you open multiplexed TCP or UDP streams with a single async call.
+- **`ServerMux`** — accepts an incoming WebSocket connection, performs the server-side handshake, and delivers new streams to your handler code via `wait_for_stream`.
+- **Wisp v1 and v2 support** — pass `None` for a plain v1 connection or supply a `WispV2Handshake` to advertise extensions and negotiate v2. Automatic downgrade to v1 is detected and exposed through `was_downgraded()`.
+- **Extension system** — the `extensions` module ships ready-made builders for UDP (`UdpProtocolExtensionBuilder`), password authentication (`PasswordProtocolExtensionBuilder`), certificate authentication (`CertAuthProtocolExtensionBuilder`), and MOTD (`MotdProtocolExtensionBuilder`). Custom extensions can be implemented via the `ProtocolExtension` trait.
+- **Multiple WebSocket backends** — opt-in Cargo features wire up `tokio-websockets` and `tokio-tungstenite`. Any type that implements the `TransportRead` / `TransportWrite` traits works as a transport, including the `embedded-io-async` and `embedded-nal-async` adapters for `no_std` environments.
+- **WASM compatibility** — the `wasm` feature routes `getrandom` through the browser's crypto API, so the same crate compiles for both native and browser targets.
+
+## Installation
+
+Add `wisp-mux` to your `Cargo.toml`. Choose the WebSocket backend that matches your runtime:
+
+```toml
+[dependencies]
+# tokio-websockets backend (recommended for native async runtimes)
+wisp-mux = { version = "6.0.0", features = ["tokio-websockets"] }
+
+# tokio-tungstenite backend
+# wisp-mux = { version = "6.0.0", features = ["tokio-tungstenite"] }
+
+# WASM build (add alongside a backend feature)
+# wisp-mux = { version = "6.0.0", features = ["tokio-websockets", "wasm"] }
+```
+
+The `certificate` feature is enabled by default and adds Ed25519-based certificate authentication support.
+
+## Feature flags
+
+| Feature | What it enables |
+|---|---|
+| `certificate` *(default)* | Ed25519 certificate authentication extension (`CertAuthProtocolExtension`). Pulls in `ed25519`, `getrandom`, and `bitflags`. |
+| `wasm` | Configures `getrandom` to use the browser WebCrypto API. Required for WASM targets. |
+| `tokio-websockets` | `TokioWebsocketsTransport` wrapper and the `tokio-websockets` + `tokio` dependencies. |
+| `tokio-tungstenite` | `TokioTungsteniteTransport` wrapper and the `tokio-tungstenite` + `tokio` dependencies. |
+| `embedded-io-async` | Implements `AsyncRead` / `AsyncWrite` from `embedded-io-async` on `MuxStream`. |
+| `embedded-nal-async` | Implements `embedded_nal_async::TcpConnect` on `ClientMux`, enabling use with `no_std` networking stacks. |
+
+## Relationship to epoxy-server
+
+`epoxy-server` is the production Wisp gateway that ships as part of the Epoxy TLS project. It uses `wisp-mux` internally to handle every client connection: it constructs a `ServerMux`, waits for streams with `wait_for_stream`, and forwards traffic over native TCP sockets. If you need a reference for how to integrate `wisp-mux` on the server side, the `epoxy-server` source is a practical starting point.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="ClientMux" icon="arrow-right-arrow-left" href="/wisp/client-mux">
+    Open multiplexed TCP and UDP streams from a Wisp client.
+  </Card>
+  <Card title="ServerMux" icon="server" href="/wisp/server-mux">
+    Accept and handle incoming Wisp streams on the server side.
+  </Card>
+</CardGroup>

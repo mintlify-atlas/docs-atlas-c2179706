@@ -1,0 +1,144 @@
+---
+title: "Get started with Epoxy TLS client"
+sidebarTitle: "Quickstart"
+description: "Install the Epoxy TLS client, initialize the WASM module, connect to a Wisp server, and make your first proxied fetch request in minutes."
+---
+
+Epoxy TLS lets you make fully encrypted HTTP and WebSocket requests directly from browser JavaScript by running TLS inside WebAssembly and tunneling TCP connections through the [Wisp protocol](https://github.com/MercuryWorkshop/wisp-protocol). This guide walks you through installing the package, initializing the WASM module, and issuing your first proxied `fetch()` call.
+
+<Steps>
+
+### Install the package
+
+Add `@mercuryworkshop/epoxy-tls` to your project using your preferred package manager.
+
+<CodeGroup>
+
+```bash npm
+npm install @mercuryworkshop/epoxy-tls
+```
+
+```bash yarn
+yarn add @mercuryworkshop/epoxy-tls
+```
+
+```bash pnpm
+pnpm add @mercuryworkshop/epoxy-tls
+```
+
+</CodeGroup>
+
+### Initialize the WASM module
+
+Before using any Epoxy class, you must call `init()` and `await` its result. The way you call `init()` depends on which package export you import.
+
+**Bundled variant** (default import — WASM is embedded as base64, no extra file needed):
+
+```javascript
+import init, { EpoxyClient, EpoxyClientOptions } from "@mercuryworkshop/epoxy-tls";
+
+// No arguments required — the WASM binary is already bundled
+await init();
+```
+
+**Non-bundled variant** (WASM file must be served separately):
+
+```javascript
+import init, { EpoxyClient, EpoxyClientOptions } from "@mercuryworkshop/epoxy-tls/epoxy";
+
+// Pass the path or URL to the separately hosted .wasm file
+await init({ module_or_path: "/path/to/epoxy.wasm" });
+```
+
+<Tip>
+  Use the bundled variant (`@mercuryworkshop/epoxy-tls` or `./epoxy-bundled`) during development and for simpler deployments — it requires no extra static file serving setup.
+</Tip>
+
+### Configure `EpoxyClientOptions`
+
+Create an `EpoxyClientOptions` object and configure it before constructing the client. Enabling `wisp_v2` is strongly recommended for best compatibility and performance.
+
+```javascript
+const options = new EpoxyClientOptions();
+options.user_agent = navigator.userAgent;
+options.wisp_v2 = true;
+```
+
+Other available options include `udp_extension_required`, `disable_certificate_validation`, `redirect_limit`, `header_limit`, and `buffer_size`. See the [API reference](/client/epoxy-client) for the full list.
+
+### Create an `EpoxyClient`
+
+Pass your Wisp server URL (using the `ws://` or `wss://` scheme) as the first argument to the `EpoxyClient` constructor, along with the options object you just configured.
+
+```javascript
+// Use your own self-hosted Wisp server in production
+const client = new EpoxyClient("wss://wisp.mercurywork.shop", options);
+```
+
+<Note>
+  `EpoxyClient` also accepts an async function instead of a URL string if you need a custom transport. The function must return `{ read: ReadableStream<ArrayBuffer>, write: WritableStream<Uint8Array> }`. See the [API reference](/client/epoxy-client) for details.
+</Note>
+
+### Make your first `fetch()` call
+
+Call `client.fetch()` just like the native browser `fetch` API. It returns a standard `Response` object whose `headers`, `text()`, `json()`, and `arrayBuffer()` methods all work as expected. An additional `rawHeaders` property exposes the raw header map.
+
+```javascript
+const res = await client.fetch("https://example.com");
+
+// Standard Headers object
+console.log(res.headers);
+
+// Raw header map (object with header name keys)
+console.log(res.rawHeaders);
+
+// Read the body
+console.log(await res.text());
+```
+
+</Steps>
+
+<Note>
+  The demo Wisp server at `wss://wisp.mercurywork.shop` is intentionally **throttled** and is provided for testing only. For production use, [self-host a Wisp server](https://github.com/MercuryWorkshop/epoxy-tls/blob/master/server/README.md) and pass its URL to `EpoxyClient`.
+</Note>
+
+## Complete example
+
+The following snippet combines all of the steps above into a single, copy-pasteable module.
+
+```javascript
+import init, { EpoxyClient, EpoxyClientOptions } from "@mercuryworkshop/epoxy-tls";
+
+(async () => {
+  // 1. Initialize the WASM module
+  await init();
+
+  // 2. Configure the client
+  const options = new EpoxyClientOptions();
+  options.user_agent = navigator.userAgent;
+  options.wisp_v2 = true;
+
+  // 3. Connect to a Wisp server
+  // Replace with your own self-hosted server URL in production
+  const client = new EpoxyClient("wss://wisp.mercurywork.shop", options);
+
+  // 4. Make a proxied fetch request
+  const res = await client.fetch("https://example.com");
+  console.log(res.headers, res.rawHeaders);
+  console.log(await res.text());
+})();
+```
+
+## Next steps
+
+<CardGroup cols={3}>
+  <Card title="Fetch guide" icon="arrow-up-right-from-square" href="/client/fetch">
+    Learn about request options, redirect handling, streaming bodies, and POST requests.
+  </Card>
+  <Card title="WebSocket guide" icon="plug" href="/client/websocket">
+    Open proxied WebSocket connections using `EpoxyHandlers` and `connect_websocket`.
+  </Card>
+  <Card title="API reference" icon="book" href="/client/epoxy-client">
+    Full reference for `EpoxyClient`, `EpoxyClientOptions`, and `EpoxyHandlers`.
+  </Card>
+</CardGroup>

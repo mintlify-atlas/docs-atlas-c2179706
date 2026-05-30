@@ -1,0 +1,122 @@
+---
+title: "MOTD extension — server message of the day"
+sidebarTitle: "MOTD Extension"
+description: "The MOTD protocol extension (ID 0x04) delivers a plain-text server message to connecting clients during the Wisp v2 handshake, before any streams are opened."
+---
+
+The message-of-the-day (MOTD) extension is a lightweight, one-way communication channel from server to client. During the Wisp v2 handshake the server encodes an arbitrary UTF-8 string into the extension payload. After the mux is created, the client can read that string from the negotiated extension list. The extension carries no client payload; only the server sends data.
+
+## Extension details
+
+| Field | Value |
+|-------|-------|
+| Extension ID | `0x04` |
+| Extension struct | `MotdProtocolExtension` |
+| Builder enum | `MotdProtocolExtensionBuilder` |
+| Feature gate | none (always available) |
+| Direction | Server → Client only |
+
+## Server setup
+
+Use the `Server` variant of `MotdProtocolExtensionBuilder` and pass the MOTD string.
+
+```rust
+use wisp_mux::extensions::{
+    motd::MotdProtocolExtensionBuilder,
+    AnyProtocolExtensionBuilder,
+};
+
+let motd = "Welcome to my Wisp server v1.2.3".to_string();
+
+let extensions: Vec<AnyProtocolExtensionBuilder> = vec![
+    AnyProtocolExtensionBuilder::new(MotdProtocolExtensionBuilder::Server(motd)),
+];
+```
+
+<Note>
+  `MotdProtocolExtensionBuilder::new_server(motd)` is an equivalent constructor that may be more readable in longer builder chains.
+</Note>
+
+## Client setup
+
+Use the `Client` variant to tell the library to capture the MOTD string during the handshake. No credentials or configuration are needed.
+
+```rust
+use wisp_mux::extensions::{
+    motd::MotdProtocolExtensionBuilder,
+    AnyProtocolExtensionBuilder,
+};
+
+let extensions: Vec<AnyProtocolExtensionBuilder> = vec![
+    AnyProtocolExtensionBuilder::new(MotdProtocolExtensionBuilder::Client),
+];
+```
+
+## Reading the MOTD after connection
+
+After `ClientMux::new` completes, call `mux.get_extensions().find_extension::<MotdProtocolExtension>()`. The `motd` field on the returned struct contains the server's message. On the client side `motd` is populated from the wire; on the server side it remains an empty string.
+
+```rust
+use wisp_mux::extensions::{
+    ProtocolExtensionListExt,
+    motd::MotdProtocolExtension,
+};
+
+let motd_text = mux
+    .get_extensions()
+    .find_extension::<MotdProtocolExtension>()
+    .map(|x| x.motd.clone());
+
+println!("Server MOTD: {:?}", motd_text);
+```
+
+## Full example (from simple-wisp-client)
+
+The snippet below is adapted from `simple-wisp-client` and shows how MOTD parsing integrates with a full connection setup that may also enable UDP and authentication extensions.
+
+```rust
+use wisp_mux::{
+    extensions::{
+        motd::{MotdProtocolExtension, MotdProtocolExtensionBuilder},
+        AnyProtocolExtensionBuilder, ProtocolExtensionListExt,
+    },
+    ClientMux, WispV2Handshake,
+};
+
+let mut extensions: Vec<AnyProtocolExtensionBuilder> = Vec::new();
+
+// Enable MOTD capture when --motd flag is set
+if opts.motd {
+    extensions.push(AnyProtocolExtensionBuilder::new(
+        MotdProtocolExtensionBuilder::Client,
+    ));
+}
+
+let (mux, fut) = ClientMux::new(rx, tx, Some(WispV2Handshake::new(extensions)))
+    .await?
+    .with_required_extensions(&[]) // MOTD is informational — don't require it
+    .await?;
+
+// Read the MOTD; returns None if the server did not send one
+let motd_extension = mux
+    .get_extensions()
+    .find_extension::<MotdProtocolExtension>();
+
+println!(
+    "connected, was_downgraded={}, extensions={:?}, motd={:?}",
+    mux.was_downgraded(),
+    mux.get_extensions()
+        .iter()
+        .map(|x| x.get_id())
+        .collect::<Vec<_>>(),
+    motd_extension.map(|x| x.motd.clone()),
+);
+```
+
+## epoxy-server MOTD configuration
+
+When using epoxy-server, the MOTD is set to the server's version string by default. You can override it via the `motd_extension` key in the server configuration file. Set `motd_extension` to an empty string to disable the extension entirely.
+
+<Tip>
+  The MOTD extension is purely informational. It is safe to include `MotdProtocolExtensionBuilder::Client` on every connection without calling `with_required_extensions` for its ID — the library will simply not populate `motd` if the server chose not to send it.
+</Tip>

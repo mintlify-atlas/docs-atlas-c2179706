@@ -1,0 +1,62 @@
+---
+title: "epoxy-server: Wisp protocol server in Rust"
+sidebarTitle: "Overview"
+description: "epoxy-server is a high-performance Rust implementation of the Wisp protocol, supporting Wisp v1 and v2, multiple listener types, and flexible transports."
+---
+
+epoxy-server is a performant, multi-threaded server implementation of the [Wisp protocol](https://github.com/MercuryWorkshop/wisp-protocol), written in Rust and built specifically for use with epoxy-client. It multiplexes TCP and UDP streams over a single WebSocket (or length-delimited) connection, giving browser-based clients full network access through an unprivileged channel. The server uses [jemalloc](https://jemalloc.net/) as its allocator and the [Tokio](https://tokio.rs/) async runtime, and is designed to handle many concurrent Wisp clients with minimal overhead.
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card title="Multi-threaded Tokio runtime" icon="microchip">
+    Choose between `SingleThread`, `MultiThread` (default), or `ThreadPerCore` runtimes to match your deployment hardware.
+  </Card>
+  <Card title="Wisp v1 and v2" icon="arrows-split-up-and-left">
+    Full support for both Wisp protocol versions, including v2 extensions for UDP, MOTD, password auth, and certificate auth.
+  </Card>
+  <Card title="Flexible listener types" icon="plug">
+    Accepts connections on plain TCP, TLS-wrapped TCP, Unix domain sockets, or TLS-wrapped Unix domain sockets.
+  </Card>
+  <Card title="WebSocket and length-delimited transports" icon="wifi">
+    Serves Wisp over standard WebSocket upgrades or a raw little-endian length-delimited codec (`LengthDelimitedLe`).
+  </Card>
+  <Card title="Password and certificate authentication" icon="lock">
+    When Wisp v2 is enabled, clients can be required to authenticate with a username/password pair or an ed25519 certificate before any streams are accepted.
+  </Card>
+  <Card title="Host and port filtering" icon="filter">
+    Regex-based allow and block lists for hostnames (with separate TCP and UDP overrides) and inclusive port range allow/block lists guard which destinations clients can reach.
+  </Card>
+  <Card title="Stats endpoint" icon="chart-bar">
+    An optional HTTP stats endpoint exposes live connection and stream information. Stats can also be printed to the log by sending `SIGUSR1` to the process.
+  </Card>
+  <Card title="TLS listener support" icon="shield-halved">
+    Supply a PEM keypair in the config to terminate TLS directly on the Wisp listener, without an external reverse proxy.
+  </Card>
+</CardGroup>
+
+## Architecture overview
+
+```
+Browser / epoxy-client
+        │  WebSocket (or LengthDelimitedLe)
+        ▼
+  epoxy-server  ──►  TCP/UDP destination
+  (Wisp mux)         (e.g. api.example.com:443)
+```
+
+epoxy-client opens a single persistent WebSocket connection to epoxy-server. Inside that connection it multiplexes independent Wisp streams — each stream represents one outbound TCP or UDP flow to a destination host and port. epoxy-server de-multiplexes the streams, opens real OS-level sockets to the destinations, and bidirectionally pipes data. From the perspective of the destination server the connections originate from the host running epoxy-server, not from the browser.
+
+## Next steps
+
+<CardGroup cols={3}>
+  <Card title="Building" icon="hammer" href="/server/building">
+    Compile epoxy-server from source with optional performance flags.
+  </Card>
+  <Card title="Running" icon="play" href="/server/running">
+    Generate a config file and start the server.
+  </Card>
+  <Card title="Configuration" icon="sliders" href="/server/config-server">
+    Full reference for every config key in the TOML/JSON/YAML config file.
+  </Card>
+</CardGroup>

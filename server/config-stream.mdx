@@ -1,0 +1,240 @@
+---
+title: "Stream filtering and access control for epoxy-server"
+sidebarTitle: "Stream Config"
+description: "Reference for the [stream] config section — regex host filtering, port range allow/block lists, IP address category controls, DNS servers, and UDP settings."
+---
+
+The `[stream]` section of the epoxy-server configuration file governs what each individual Wisp stream is allowed to connect to. It provides independent controls for TCP and UDP, regex-based host allow/block lists, port range filtering, IP address category restrictions (loopback, multicast, globally-routable, etc.), and DNS resolver configuration. Together these settings let you lock down an epoxy-server deployment to only the traffic you intend to permit.
+
+## `[stream]` fields
+
+<ParamField path="tcp_nodelay" type="boolean" default="true">
+  Enables `TCP_NODELAY` on upstream TCP connections opened for client streams. Disabling Nagle's algorithm reduces latency for interactive traffic. Recommended to leave `true`.
+</ParamField>
+
+<ParamField path="buffer_size" type="integer" default="131072">
+  Size in bytes of the read buffer allocated for each upstream TCP socket, specifically the amount of data read from the upstream TCP stream in a single call. The default is 131072 (128 KiB). Tune this value if you observe high memory usage under many concurrent streams or if throughput is lower than expected.
+</ParamField>
+
+<ParamField path="allow_udp" type="boolean" default="true">
+  Allow Wisp clients to open UDP streams. When `false`, all Wisp UDP stream requests are rejected regardless of the `extensions` setting in `[wisp]`.
+</ParamField>
+
+<ParamField path="allow_wsproxy_udp" type="boolean" default="false">
+  Allow UDP connections over the legacy wsproxy protocol. This is a nonstandard extension to wsproxy and is disabled by default. Only enable this if you have wsproxy clients that require UDP.
+</ParamField>
+
+<ParamField path="dns_servers" type="string[]" default="[]">
+  List of DNS server IP addresses used to resolve hostnames for upstream connections. When empty (the default), the system resolver configuration is used (typically `/etc/resolv.conf` on Linux).
+
+  ```toml
+  # Use Cloudflare and Google DNS
+  dns_servers = ["1.1.1.1", "8.8.8.8"]
+  ```
+
+  Provide explicit DNS servers if you want deterministic resolution behavior independent of the host system's network configuration.
+</ParamField>
+
+<ParamField path="allow_direct_ip" type="boolean" default="true">
+  Allow clients to open streams to bare IP addresses (e.g. `192.0.2.1`) rather than hostnames. When `false`, streams whose target was specified as a raw IP address are rejected. This does not affect connections to hostnames that resolve to IP addresses.
+</ParamField>
+
+<ParamField path="allow_loopback" type="boolean" default="true">
+  Allow connections to loopback addresses (IPv4 `127.0.0.0/8`, IPv6 `::1`). The default is `true`, which matches the default "open" configuration, but **should be set to `false` in production** to prevent clients from reaching services on the server itself.
+</ParamField>
+
+<ParamField path="allow_multicast" type="boolean" default="true">
+  Allow connections to multicast addresses (IPv4 `224.0.0.0/4`, IPv6 `ff00::/8`).
+</ParamField>
+
+<ParamField path="allow_global" type="boolean" default="true">
+  Allow connections to globally-routable IP addresses (public internet addresses). Set to `false` to restrict clients to internal/private networks only.
+</ParamField>
+
+<ParamField path="allow_non_global" type="boolean" default="true">
+  Allow connections to non-globally-routable IP addresses, such as RFC 1918 private ranges (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`). Set to `false` to prevent clients from reaching hosts on your internal LAN.
+</ParamField>
+
+---
+
+## Host filtering
+
+epoxy-server supports regex-based host filtering at three levels of granularity: protocol-specific TCP lists, protocol-specific UDP lists, and a catch-all list that applies to all protocols. All regex patterns follow the [Rust `regex` crate](https://docs.rs/regex/latest/regex/) syntax.
+
+### Precedence rules
+
+For each stream request the server evaluates rules in the following order:
+
+1. If the protocol-specific **allow list** is non-empty and the host does **not** match any pattern in it → **reject**.
+2. If the host matches any pattern in the protocol-specific **block list** → **reject**.
+3. If the global **allow list** (`allow_hosts`) is non-empty and the host does **not** match any pattern in it → **reject**.
+4. If the host matches any pattern in the global **block list** (`block_hosts`) → **reject**.
+5. Otherwise → **allow**.
+
+An empty allow list means "allow all" (no whitelist is enforced). A non-empty allow list is a strict whitelist — only matched hosts pass.
+
+<ParamField path="allow_tcp_hosts" type="string[]" default="[]">
+  Regex whitelist of hostnames for TCP streams. When non-empty, TCP connections are only permitted to hosts whose name matches at least one pattern.
+
+  ```toml
+  # Only allow TCP connections to example.com and its subdomains
+  allow_tcp_hosts = ["^(.*\\.)?example\\.com$"]
+  ```
+</ParamField>
+
+<ParamField path="block_tcp_hosts" type="string[]" default="[]">
+  Regex blacklist of hostnames for TCP streams. TCP connections to matching hosts are always rejected.
+
+  ```toml
+  # Block social media domains over TCP
+  block_tcp_hosts = [
+    "^(.*\\.)?facebook\\.com$",
+    "^(.*\\.)?instagram\\.com$",
+    "^(.*\\.)?tiktok\\.com$"
+  ]
+  ```
+</ParamField>
+
+<ParamField path="allow_udp_hosts" type="string[]" default="[]">
+  Regex whitelist of hostnames for UDP streams. When non-empty, UDP connections are only permitted to matching hosts.
+</ParamField>
+
+<ParamField path="block_udp_hosts" type="string[]" default="[]">
+  Regex blacklist of hostnames for UDP streams. UDP connections to matching hosts are rejected.
+</ParamField>
+
+<ParamField path="allow_hosts" type="string[]" default="[]">
+  Regex whitelist applied to **all** stream types (TCP and UDP). When non-empty, any stream to a non-matching host is rejected regardless of protocol-specific lists.
+
+  ```toml
+  # Global whitelist: only allow *.example.com
+  allow_hosts = ["^(.*\\.)?example\\.com$"]
+  ```
+</ParamField>
+
+<ParamField path="block_hosts" type="string[]" default="[]">
+  Regex blacklist applied to **all** stream types (TCP and UDP). Streams to matching hosts are always rejected.
+
+  ```toml
+  # Block known ad/tracking domains globally
+  block_hosts = [
+    "^(.*\\.)?doubleclick\\.net$",
+    "^(.*\\.)?googletagmanager\\.com$"
+  ]
+  ```
+</ParamField>
+
+### Block social media example
+
+```toml
+[stream]
+block_hosts = [
+  "^(.*\\.)?facebook\\.com$",
+  "^(.*\\.)?instagram\\.com$",
+  "^(.*\\.)?twitter\\.com$",
+  "^(.*\\.)?x\\.com$",
+  "^(.*\\.)?tiktok\\.com$",
+  "^(.*\\.)?reddit\\.com$"
+]
+```
+
+---
+
+## Port filtering
+
+Port lists use inclusive `[lower, upper]` ranges. Multiple ranges may be specified.
+
+<ParamField path="allow_ports" type="integer[][] " default="[]">
+  Whitelist of port ranges. When non-empty, streams to ports outside all listed ranges are rejected.
+
+  ```toml
+  # Only allow HTTP and HTTPS
+  allow_ports = [[80, 80], [443, 443]]
+  ```
+
+  ```toml
+  # Allow ephemeral port range
+  allow_ports = [[1024, 65535]]
+  ```
+</ParamField>
+
+<ParamField path="block_ports" type="integer[][]" default="[]">
+  Blacklist of port ranges. Streams to ports within any listed range are rejected.
+
+  ```toml
+  # Block SMTP and SMTPS to prevent spam relay
+  block_ports = [[25, 25], [465, 465], [587, 587]]
+  ```
+</ParamField>
+
+### Only allow HTTP and HTTPS example
+
+```toml
+[stream]
+allow_ports = [[80, 80], [443, 443]]
+```
+
+---
+
+## IP address filtering
+
+| Field | Default | Controls |
+|-------|---------|---------|
+| `allow_direct_ip` | `true` | Bare IP addresses as the connection target |
+| `allow_loopback` | `true` | `127.0.0.0/8`, `::1` |
+| `allow_multicast` | `true` | `224.0.0.0/4`, `ff00::/8` |
+| `allow_global` | `true` | Public internet addresses |
+| `allow_non_global` | `true` | RFC 1918 private ranges and link-local |
+
+These flags are checked against the resolved IP address of each upstream connection, after DNS resolution. A connection is rejected if any of the applicable category flags is `false`.
+
+---
+
+## UDP settings
+
+<ParamField path="allow_udp" type="boolean" default="true">
+  Master switch for Wisp UDP streams. Set to `false` to disable UDP entirely.
+</ParamField>
+
+<ParamField path="allow_wsproxy_udp" type="boolean" default="false">
+  Enable UDP for the legacy wsproxy protocol (nonstandard extension, disabled by default).
+</ParamField>
+
+<ParamField path="dns_servers" type="string[]" default="[]">
+  Override the system DNS resolver with specific nameserver addresses. Empty means use the system default.
+</ParamField>
+
+---
+
+## Production example
+
+The following configuration is a typical starting point for a production deployment that blocks access to internal infrastructure, restricts traffic to web ports only, and disables wsproxy UDP:
+
+```toml
+[stream]
+tcp_nodelay    = true
+buffer_size    = 131072
+
+# Disable access to the server's own network interfaces
+allow_loopback    = false
+allow_non_global  = false
+allow_multicast   = false
+
+# Keep global (public internet) access enabled
+allow_global      = true
+allow_direct_ip   = true
+
+# Only allow standard web ports
+allow_ports = [[80, 80], [443, 443]]
+
+# Allow standard Wisp UDP (e.g. QUIC) but not legacy wsproxy UDP
+allow_udp         = true
+allow_wsproxy_udp = false
+
+# Use explicit DNS servers
+dns_servers = ["1.1.1.1", "1.0.0.1"]
+```
+
+<Warning>
+  The default value of `allow_loopback` is `true`, which allows Wisp clients to open connections to `127.0.0.1` and other loopback addresses. In a production environment this means any connected client can reach services bound to localhost on the server — databases, admin panels, internal APIs, and so on. **Always set `allow_loopback = false` in production** unless you have a specific, deliberate reason to allow it.
+</Warning>

@@ -1,0 +1,124 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "Epoxy TLS",
+  "projectDescription": "An encrypted proxy for browser JavaScript that enables CORS-bypassing HTTPS/WebSocket requests by running TLS inside WebAssembly over the Wisp multiplexing protocol.",
+  "theme": "luma",
+  "primaryColor": "#6366f1",
+  "lightColor": "#818cf8",
+  "darkColor": "#4338ca",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Client",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "client/quickstart",
+              "client/installation"
+            ]
+          },
+          {
+            "group": "API Reference",
+            "pages": [
+              "client/epoxy-client",
+              "client/epoxy-client-options",
+              "client/epoxy-handlers",
+              "client/streams",
+              "client/transport"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "client/fetch",
+              "client/websocket",
+              "client/raw-streams",
+              "client/bundle-variants"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Server",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "server/overview",
+              "server/building",
+              "server/running"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "server/config-server",
+              "server/config-wisp",
+              "server/config-stream"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "wisp-mux",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "wisp/overview",
+              "wisp/client-mux",
+              "wisp/server-mux"
+            ]
+          },
+          {
+            "group": "Extensions",
+            "pages": [
+              "wisp/extensions-overview",
+              "wisp/extension-udp",
+              "wisp/extension-password",
+              "wisp/extension-certificate",
+              "wisp/extension-motd"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Runs full TLS/SSL inside WebAssembly for true end-to-end encryption in browsers",
+    "Bypasses CORS restrictions without sacrificing security",
+    "Implements the Wisp v1/v2 multiplexing protocol over WebSockets",
+    "Supports HTTP/1.1, HTTP/2, WebSocket proxying, raw TCP, TLS, and UDP streams",
+    "Performant Rust-based Wisp server (epoxy-server) with host/port filtering and authentication",
+    "Wisp v2 protocol extensions: UDP, MOTD, password auth, certificate auth",
+    "Multiple npm bundle variants: full (HTTP/2 + compression) and minimal (HTTP/1 only)",
+    "Custom Wisp transport support via WebSocketStream or any ReadableStream/WritableStream pair",
+    "Rust wisp-mux library for building Wisp clients and servers",
+    "TWisp extension for PTY terminal forwarding through Wisp streams"
+  ],
+  "publicApiSurface": [
+    "EpoxyClient(transport: EpoxyWispTransport, options: EpoxyClientOptions)",
+    "EpoxyClient.fetch(url, options) -> Promise<Response>",
+    "EpoxyClient.connect_websocket(handlers, url, protocols, headers) -> Promise<EpoxyWebSocket>",
+    "EpoxyClient.connect_tcp(url) -> Promise<EpoxyIoStream>",
+    "EpoxyClient.connect_tls(url) -> Promise<EpoxyIoStream>",
+    "EpoxyClient.connect_udp(url) -> Promise<EpoxyIoStream>",
+    "EpoxyClient.replace_stream_provider() -> Promise<void>",
+    "EpoxyClientOptions { wisp_v2, udp_extension_required, title_case_headers, user_agent, redirect_limit, buffer_size, pem_files, disable_certificate_validation }",
+    "EpoxyHandlers(onopen, onclose, onerror, onmessage)",
+    "EpoxyWebSocket.send(data) -> Promise<void>",
+    "ClientMux::new(rx, tx, wisp_v2) -> MuxResult",
+    "ClientMux::new_stream(stream_type, host, port) -> MuxStream",
+    "ServerMux::new(rx, tx, wisp_v2, extensions) -> MuxResult",
+    "MuxResult::with_no_required_extensions()",
+    "MuxResult::with_required_extensions(extensions)",
+    "WispV2Handshake::new(builders)",
+    "WispV2Handshake::new_with_middleware(builders, closure)",
+    "epoxy-server CLI: --default-config, --format (json/toml/yaml)",
+    "ServerConfig { bind, transport, tls_keypair, stats_endpoint, max_message_size, log_level, runtime }",
+    "WispConfig { wisp_v2, extensions, auth_extension, buffer_size, prefix, password_extension_users, motd_extension }",
+    "StreamConfig { allow_udp, allow_tcp_hosts, block_tcp_hosts, allow_hosts, block_hosts, allow_ports, block_ports, dns_servers }"
+  ]
+}

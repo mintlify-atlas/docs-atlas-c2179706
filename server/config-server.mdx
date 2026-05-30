@@ -1,0 +1,176 @@
+---
+title: "Server configuration for epoxy-server"
+sidebarTitle: "Server Config"
+description: "Reference for the [server] config section — covering socket listeners, TLS keypairs, WebSocket transport, reverse-proxy headers, and runtime flavors."
+---
+
+The `[server]` section of the epoxy-server configuration file controls how the server binds to the network, which transport protocol it speaks, TLS termination, log verbosity, and the Tokio runtime that drives the process. Every option has a sensible default so you only need to specify the values that differ from the defaults.
+
+## Config file basics
+
+epoxy-server reads a configuration file in **TOML** (default), **JSON**, or **YAML**. Pass the path to the file as the first CLI argument:
+
+```bash
+epoxy-server /etc/epoxy/config.toml
+```
+
+To use a different format, add `--format`:
+
+```bash
+epoxy-server --format json /etc/epoxy/config.json
+epoxy-server --format yaml /etc/epoxy/config.yaml
+```
+
+To print the built-in defaults and exit (useful as a starting point), run:
+
+```bash
+epoxy-server --default-config
+```
+
+The top-level config is divided into three sections, each mapped to its own table:
+
+```toml
+[server]   # listener, TLS, runtime
+[wisp]     # Wisp protocol and extensions
+[stream]   # per-stream filtering and access control
+```
+
+## `[server]` fields
+
+<ParamField path="bind" type="[socket_type, address]" default='["tcp", "127.0.0.1:4000"]'>
+  A two-element array that specifies the socket type and the address to listen on.
+
+  **Socket type variants:**
+
+  | Value | Description |
+  |-------|-------------|
+  | `"tcp"` | Plain TCP socket (default) |
+  | `"tlstcp"` | TCP socket with TLS — requires `tls_keypair` |
+  | `"unix"` | Unix domain socket — `address` is a filesystem path |
+  | `"tlsunix"` | Unix domain socket with TLS — requires `tls_keypair` |
+  | `"file"` | File "socket" — accepts a single connection immediately via stdin/stdout; useful for testing |
+
+  ```toml
+  # TCP on all interfaces, port 4000
+  bind = ["tcp", "0.0.0.0:4000"]
+
+  # TLS-terminated TCP
+  bind = ["tlstcp", "0.0.0.0:443"]
+
+  # Unix socket
+  bind = ["unix", "/run/epoxy/wisp.sock"]
+  ```
+</ParamField>
+
+<ParamField path="transport" type="string" default='"websocket"'>
+  The framing protocol used on top of the socket.
+
+  | Value | Description |
+  |-------|-------------|
+  | `"websocket"` | Standard WebSocket upgrade — compatible with all epoxy-client builds (default) |
+  | `"lengthdelimitedl"` | Little-endian `u32` length-delimited codec (see [tokio-util](https://docs.rs/tokio-util/latest/tokio_util/codec/length_delimited/index.html)) — lower overhead, not WebSocket |
+
+  Most deployments should use `"websocket"`. The length-delimited transport is intended for non-browser environments where WebSocket framing overhead matters.
+</ParamField>
+
+<ParamField path="tls_keypair" type="[string, string] | null" default="null">
+  Paths to the TLS certificate and private key in PEM format, as a two-element array `[cert.pem, key.pem]`. Required when `bind` uses `"tlstcp"` or `"tlsunix"`.
+
+  ```toml
+  tls_keypair = ["/etc/epoxy/cert.pem", "/etc/epoxy/key.pem"]
+  ```
+
+  Leave unset (or `null`) for plain (non-TLS) sockets. If you terminate TLS at a reverse proxy (nginx, Caddy, etc.) you do not need this field.
+</ParamField>
+
+<ParamField path="resolve_ipv6" type="boolean" default="false">
+  When `true`, the server will resolve hostnames to IPv6 addresses and open upstream connections over IPv6. When `false` (the default), only IPv4 addresses are used for upstream connections.
+</ParamField>
+
+<ParamField path="tcp_nodelay" type="boolean" default="true">
+  Enables `TCP_NODELAY` on client TCP connections, disabling Nagle's algorithm. This reduces latency for small, interactive packets at the cost of slightly higher packet count. Recommended to leave `true` for typical proxy workloads.
+</ParamField>
+
+<ParamField path="file_raw_mode" type="boolean" default="false">
+  When using the `"file"` socket type, setting this to `true` puts the terminal into raw mode before reading. Has no effect for TCP or Unix socket listeners.
+</ParamField>
+
+<ParamField path="stats_endpoint" type="string | [socket_type, address] | null" default="null">
+  Enables an HTTP endpoint that exposes server statistics. Accepts two forms:
+
+  - **Same server** — a URL path string served on the same listener as the Wisp server:
+    ```toml
+    stats_endpoint = "/stats"
+    ```
+  - **Separate server** — a `[socket_type, address]` tuple that binds a dedicated HTTP listener:
+    ```toml
+    stats_endpoint = ["tcp", "127.0.0.1:9090"]
+    ```
+
+  Leave unset (or `null`) to disable the stats endpoint entirely.
+</ParamField>
+
+<ParamField path="use_real_ip_headers" type="boolean" default="false">
+  When `true`, the server inspects the `X-Real-IP` and `X-Forwarded-For` HTTP headers to determine the real client IP address. Enable this when epoxy-server is deployed behind a reverse proxy that sets these headers.
+
+  <Note>
+    Only enable `use_real_ip_headers` when epoxy-server is not directly internet-facing. If the server accepts connections from untrusted clients, those clients could spoof their source IP by injecting these headers themselves.
+  </Note>
+</ParamField>
+
+<ParamField path="non_ws_response" type="string" default='":3"'>
+  The plain-text body sent in response to any HTTP request that is not a WebSocket upgrade. Useful for adding a basic health-check string or a short message for visitors who reach the server with a browser.
+</ParamField>
+
+<ParamField path="max_message_size" type="integer" default="65536">
+  Maximum WebSocket message size in bytes that the server will accept from a client. Messages larger than this limit cause the connection to be closed. The default is 65536 (64 KiB).
+
+  Increase this value only if you have clients that send unusually large individual WebSocket frames.
+</ParamField>
+
+<ParamField path="log_level" type="string" default='"info"'>
+  Minimum severity of log messages written to stderr.
+
+  | Value | Description |
+  |-------|-------------|
+  | `"error"` | Fatal and non-fatal errors only |
+  | `"warn"` | Errors and warnings |
+  | `"info"` | Normal operational messages (default) |
+  | `"debug"` | Detailed diagnostic output |
+  | `"trace"` | Very verbose per-packet tracing |
+  | `"off"` | Disable all logging |
+</ParamField>
+
+<ParamField path="runtime" type="string" default='"multithread"'>
+  The Tokio async runtime flavor used by the server.
+
+  | Value | Description |
+  |-------|-------------|
+  | `"singlethread"` | Single-threaded runtime — lowest overhead, no parallelism |
+  | `"multithread"` | Work-stealing multi-threaded runtime (default) — best general-purpose choice |
+  | `"threadpercore"` | Spawns one single-threaded runtime per logical CPU core — highest throughput on CPU-bound workloads |
+
+  `"multithread"` is the right choice for the vast majority of deployments. Switch to `"threadpercore"` only after profiling shows CPU saturation with `"multithread"`.
+</ParamField>
+
+## Complete example
+
+```toml
+[server]
+bind = ["tcp", "0.0.0.0:4000"]
+transport = "websocket"
+resolve_ipv6 = false
+tcp_nodelay = true
+file_raw_mode = false
+tls_keypair = ["/etc/epoxy/cert.pem", "/etc/epoxy/key.pem"]
+stats_endpoint = "/stats"
+use_real_ip_headers = true
+non_ws_response = ":3"
+max_message_size = 65536
+log_level = "info"
+runtime = "multithread"
+```
+
+<Note>
+  When running epoxy-server behind a reverse proxy such as nginx or Caddy, set `use_real_ip_headers = true` so that access logs and IP-based filtering use the real client address rather than the proxy's address. Make sure your reverse proxy is configured to forward `X-Real-IP` or `X-Forwarded-For` and that epoxy-server is not directly reachable from the internet, or clients will be able to forge these headers.
+</Note>

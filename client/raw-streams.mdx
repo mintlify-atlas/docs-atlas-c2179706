@@ -1,0 +1,134 @@
+---
+title: "Raw TCP, TLS, and UDP streams via Epoxy TLS"
+sidebarTitle: "Raw Streams"
+description: "Open raw byte streams over TCP, TLS, or UDP through a Wisp proxy with connect_tcp, connect_tls, and connect_udp — ideal for custom protocols and SMTP."
+---
+
+Epoxy TLS exposes three low-level stream primitives that bypass the HTTP layer entirely and hand you a pair of `ReadableStream<Uint8Array>` and `WritableStream<Uint8Array>`. This is useful whenever you need to speak a protocol that is not HTTP — SMTP, IRC, a custom binary protocol, or plain socket testing. The same Wisp proxy that powers `fetch()` handles the tunneling; no extra server infrastructure is required.
+
+All three methods return an object of the shape:
+
+```typescript
+type EpoxyIoStream = {
+  read: ReadableStream<Uint8Array>;
+  write: WritableStream<Uint8Array>;
+};
+```
+
+## URL format
+
+Each connect method takes a `"host:port"` string (or a `URL` object with a host and port). There is no scheme component — just the hostname and port number.
+
+```javascript
+"example.com:80"      // TCP
+"example.com:443"     // TLS
+"127.0.0.1:5000"      // UDP (local echo server)
+```
+
+## TCP streams
+
+`connect_tcp()` opens a plain, unencrypted TCP connection. Get a reader and writer from the returned streams using the standard WHATWG Streams API.
+
+```javascript
+import init, { EpoxyClient, EpoxyClientOptions } from "@mercuryworkshop/epoxy-tls";
+
+await init();
+
+const options = new EpoxyClientOptions();
+options.user_agent = navigator.userAgent;
+options.wisp_v2 = true;
+
+const client = new EpoxyClient("wss://wisp.mercurywork.shop", options);
+await client.replace_stream_provider();
+
+const { read, write } = await client.connect_tcp("example.com:80");
+
+const reader = read.getReader();
+const writer = write.getWriter();
+
+// Send a raw HTTP/1.1 GET request over plain TCP
+const encoder = new TextEncoder();
+await writer.write(
+  encoder.encode("GET / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n")
+);
+
+// Read the response byte-by-byte chunks
+const decoder = new TextDecoder();
+while (true) {
+  const { value, done } = await reader.read();
+  if (done) break;
+  console.log(decoder.decode(value, { stream: true }));
+}
+
+await writer.close();
+```
+
+## TLS streams
+
+`connect_tls()` wraps the TCP connection with a TLS handshake, giving you an encrypted channel. The API is identical to `connect_tcp()` — the same `{ read, write }` pair is returned after the TLS handshake completes.
+
+```javascript
+const { read, write } = await client.connect_tls("google.com:443");
+
+const reader = read.getReader();
+const writer = write.getWriter();
+
+// Read loop — runs concurrently with the write below
+(async () => {
+  const decoder = new TextDecoder();
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done || !value) break;
+    console.log(decoder.decode(value, { stream: true }));
+  }
+  console.log("stream closed");
+})();
+
+// Send a raw HTTP/1.1 request over the encrypted channel
+await writer.write(
+  new TextEncoder().encode(
+    "GET / HTTP/1.1\r\nHost: google.com\r\nConnection: close\r\n\r\n"
+  )
+);
+
+// Give the server time to respond, then close
+await new Promise((resolve) => setTimeout(resolve, 500));
+await writer.close();
+```
+
+## UDP streams
+
+`connect_udp()` opens a UDP stream through the Wisp proxy. Each `write` call sends one UDP datagram and each `read` yields one received datagram. Unlike TCP/TLS, there is no connection state — datagrams may arrive out of order or not at all.
+
+```javascript
+const { read, write } = await client.connect_udp("127.0.0.1:5000");
+
+const reader = read.getReader();
+const writer = write.getWriter();
+
+// Read incoming datagrams
+(async () => {
+  const decoder = new TextDecoder();
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done || !value) break;
+    console.log("received datagram:", decoder.decode(value));
+  }
+})();
+
+// Send datagrams on an interval
+const encoder = new TextEncoder();
+let i = 0;
+while (true) {
+  await writer.write(encoder.encode(`ping ${i++}`));
+  await new Promise((resolve) => setTimeout(resolve, 100));
+}
+```
+
+<Note>
+  UDP streaming requires the **UDP extension** to be enabled on your Wisp server. If the server does not support UDP, set `options.udp_extension_required = false` (the default) so the client degrades gracefully instead of failing on connection. If UDP is mandatory for your use case, set `options.udp_extension_required = true` to surface an error early.
+</Note>
+
+<Tip>
+  Use `TextEncoder` and `TextDecoder` to convert between strings and the `Uint8Array` chunks that the streams carry. For text-based protocols (HTTP/1.1 over raw TCP, SMTP, IRC), construct the full request line-by-line as a string, encode it with `new TextEncoder().encode(str)`, and decode incoming chunks with `new TextDecoder().decode(value, { stream: true })`. The `{ stream: true }` option prevents `TextDecoder` from flushing incomplete multi-byte sequences at chunk boundaries.
+</Tip>

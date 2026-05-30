@@ -1,0 +1,121 @@
+---
+title: "EpoxyClientOptions — configure the Wisp connection"
+sidebarTitle: "EpoxyClientOptions"
+description: "EpoxyClientOptions controls TLS verification, Wisp protocol version, header casing, redirect behaviour, buffer sizing, and other tunables for an EpoxyClient instance."
+---
+
+`EpoxyClientOptions` is a plain data class that holds every tunable parameter for an `EpoxyClient`. Construct it with `new EpoxyClientOptions()` to get a sensible set of defaults, then set individual fields before passing the instance to the `EpoxyClient` constructor. Fields are exposed as direct JavaScript properties — there are no getter/setter methods.
+
+## Instantiation
+
+```js
+const options = new EpoxyClientOptions();
+// then mutate the fields you need:
+options.wisp_v2 = true;
+options.user_agent = navigator.userAgent;
+```
+
+<Note>
+  `ws_title_case_headers` and `pem_files` are only present in the **full build** (`@mercuryworkshop/epoxy-tls/epoxy` or `epoxy-bundled`). They do not exist on the minimal build's `EpoxyClientOptions`.
+</Note>
+
+## Options Reference
+
+<ParamField path="wisp_v2" type="boolean" default="false">
+  Request Wisp protocol version 2 from the server. When `true`, the client sends a Wisp v2 negotiation header during the WebSocket handshake. Falls back gracefully if the server does not support v2.
+</ParamField>
+
+<ParamField path="udp_extension_required" type="boolean" default="false">
+  Fail the connection if the Wisp server does not advertise the UDP extension. Set to `true` when your application relies on `connect_udp` and you want a hard error rather than a silent fallback.
+</ParamField>
+
+<ParamField path="title_case_headers" type="boolean" default="false">
+  Send HTTP/1.1 request headers in Title-Case (e.g., `Content-Type` instead of `content-type`). Useful for compatibility with servers that perform case-sensitive header matching.
+</ParamField>
+
+<ParamField path="ws_title_case_headers" type="boolean" default="true">
+  Send WebSocket upgrade request headers in Title-Case. Defaults to `true` because many WebSocket servers are sensitive to header casing. **Full build only.**
+</ParamField>
+
+<ParamField path="websocket_protocols" type="string[]" default="[]">
+  Additional WebSocket subprotocols to advertise when opening the underlying Wisp transport WebSocket connection. This affects the transport WebSocket, not the application-level WebSocket opened with `connect_websocket`.
+</ParamField>
+
+<ParamField path="redirect_limit" type="number" default="10">
+  Maximum number of HTTP redirects to follow automatically before returning the final response. This value is copied to `EpoxyClient.redirect_limit` at construction time and can be changed on the client instance afterwards.
+</ParamField>
+
+<ParamField path="header_limit" type="number" default="200">
+  Maximum number of response headers to parse. Responses with more headers than this limit will produce a parse error.
+</ParamField>
+
+<ParamField path="user_agent" type="string" default='"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36"'>
+  The `User-Agent` string sent with every `fetch` request. Override with `navigator.userAgent` to match the browser's own UA, or supply a custom string for your application.
+</ParamField>
+
+<ParamField path="pem_files" type="string[]" default="[]">
+  List of additional PEM-encoded CA certificate strings to trust when validating TLS connections. Useful for self-signed or private CA certificates. **Full build only.**
+</ParamField>
+
+<ParamField path="disable_certificate_validation" type="boolean" default="false">
+  Skip all TLS certificate validation. When set to `true`, any certificate — including expired, self-signed, or hostname-mismatched ones — will be accepted.
+</ParamField>
+
+<ParamField path="buffer_size" type="number" default="16384">
+  Size in bytes of the internal read buffer used when converting async Rust streams into Web Streams. The default of `16384` (16 KiB) is appropriate for most use cases. Increase for high-throughput connections; decrease to reduce memory usage for many concurrent low-traffic streams.
+</ParamField>
+
+---
+
+<Warning>
+  Setting `disable_certificate_validation = true` completely disables TLS certificate checking, leaving connections open to man-in-the-middle attacks. Only use this option in controlled development or testing environments — **never in production**.
+
+  When either `disable_certificate_validation` is `true` or `pem_files` is non-empty, every `fetch` response will include an `X-Epoxy-CertsTampered: true` header so that application code can detect the modified trust configuration.
+</Warning>
+
+---
+
+## Common Configuration Examples
+
+### Typical production setup
+
+```js
+import init, { EpoxyClient, EpoxyClientOptions }
+  from "@mercuryworkshop/epoxy-tls/epoxy-bundled";
+
+await init();
+
+const options = new EpoxyClientOptions();
+options.user_agent = navigator.userAgent; // match the real browser UA
+options.wisp_v2 = true;                  // prefer Wisp v2 for better performance
+options.redirect_limit = 5;              // stricter redirect limit
+
+const client = new EpoxyClient("wss://wisp.example.com/", options);
+```
+
+### Custom CA certificate (full build)
+
+```js
+import init, { EpoxyClient, EpoxyClientOptions }
+  from "@mercuryworkshop/epoxy-tls/epoxy-bundled";
+
+await init();
+
+const caPem = await fetch("/internal-ca.pem").then(r => r.text());
+
+const options = new EpoxyClientOptions();
+options.user_agent = navigator.userAgent;
+options.wisp_v2 = true;
+options.pem_files = [caPem];  // trust the internal CA; full build only
+
+const client = new EpoxyClient("wss://internal-wisp.corp/", options);
+```
+
+### Development / testing with self-signed certs
+
+```js
+const options = new EpoxyClientOptions();
+options.disable_certificate_validation = true; // ⚠️ development only
+
+const client = new EpoxyClient("ws://localhost:4000/", options);
+```

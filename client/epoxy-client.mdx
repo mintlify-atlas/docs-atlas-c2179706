@@ -1,0 +1,222 @@
+---
+title: "EpoxyClient — Wisp-proxied fetch and stream API"
+sidebarTitle: "EpoxyClient"
+description: "EpoxyClient is the main entry point for Epoxy TLS. Construct it with a Wisp transport and options to gain fetch, WebSocket, TCP, TLS, and UDP stream access over a Wisp connection."
+---
+
+`EpoxyClient` is the core class of the Epoxy TLS library. Once constructed with a valid Wisp transport and an `EpoxyClientOptions` instance, it exposes a `fetch` API compatible with the browser's native `fetch`, as well as raw TCP, TLS, and UDP stream methods. WebSocket proxying is available in the full build via `connect_websocket`.
+
+## Constructor
+
+```js
+new EpoxyClient(transport, options)
+```
+
+Creates a new `EpoxyClient` and validates the provided transport. Throws an `EpoxyError` if the transport URL scheme is invalid or the transport value is not a recognized type.
+
+<ParamField path="transport" type="EpoxyWispTransport" required>
+  The Wisp server transport. Accepts either:
+  - A WebSocket URL string (`ws://` or `wss://`) pointing to a Wisp server, or
+  - A function `() => Promise<EpoxyWispTransportResult> | EpoxyWispTransportResult` that returns a `{ read: ReadableStream<ArrayBuffer>, write: WritableStream<Uint8Array> }` object.
+
+  See [Transport](/client/transport) for details on the custom-function form.
+</ParamField>
+
+<ParamField path="options" type="EpoxyClientOptions" required>
+  Configuration for the connection. Construct with `new EpoxyClientOptions()` and set fields directly before passing. See [EpoxyClientOptions](/client/epoxy-client-options).
+</ParamField>
+
+## Methods
+
+### `fetch`
+
+```js
+await client.fetch(url, options)
+```
+
+Sends an HTTP or HTTPS request through the Wisp connection. The API mirrors the browser `fetch` signature.
+
+<ParamField path="url" type="string | URL" required>
+  The request URL. Must use the `http` or `https` scheme.
+</ParamField>
+
+<ParamField path="options" type="object" required>
+  A fetch-like options object. Supported fields:
+
+  - `method` — HTTP method string (default: `"GET"`)
+  - `headers` — A `Headers` instance or a plain `{ [key: string]: string }` object
+  - `body` — Request body: `string`, `Uint8Array`, `ArrayBuffer`, `ReadableStream`, `URLSearchParams`, or `FormData`
+  - `redirect` — `"follow"` (default), `"manual"`, or `"error"`
+</ParamField>
+
+**Returns:** `Promise<Response>` — a standard Web API `Response` object. The response also exposes two extra properties:
+
+- `response.rawHeaders` — a plain object of raw (un-folded) header values, where duplicate header names are represented as arrays.
+- `response.redirected` — `true` if the request was redirected.
+
+---
+
+### `connect_websocket` *(full build only)*
+
+```js
+await client.connect_websocket(handlers, url, protocols, headers)
+```
+
+Opens a proxied WebSocket connection and returns an `EpoxyWebSocket` handle.
+
+<Note>
+  `connect_websocket` is only available in the **full build** (`@mercuryworkshop/epoxy-tls/epoxy` or `@mercuryworkshop/epoxy-tls/epoxy-bundled`). It is not present in the minimal build.
+</Note>
+
+<ParamField path="handlers" type="EpoxyHandlers" required>
+  An `EpoxyHandlers` instance carrying the four event callbacks. See [EpoxyHandlers](/client/epoxy-handlers).
+</ParamField>
+
+<ParamField path="url" type="string | URL" required>
+  The WebSocket endpoint URL (e.g., `"wss://echo.websocket.events"`).
+</ParamField>
+
+<ParamField path="protocols" type="string[]" required>
+  Subprotocol list to advertise during the handshake. Pass an empty array `[]` if no subprotocol is needed.
+</ParamField>
+
+<ParamField path="headers" type="Headers | { [key: string]: string }" required>
+  Extra HTTP headers to send with the WebSocket upgrade request, such as authentication headers.
+</ParamField>
+
+**Returns:** `Promise<EpoxyWebSocket>`
+
+---
+
+### `connect_tcp`
+
+```js
+await client.connect_tcp(url)
+```
+
+Opens a raw TCP stream to the given host and port.
+
+<ParamField path="url" type="string | URL" required>
+  Target address in `"host:port"` form, e.g. `"example.com:80"`. The URL scheme is ignored; only the host and port are used.
+</ParamField>
+
+**Returns:** `Promise<EpoxyIoStream>` — `{ read: ReadableStream<Uint8Array>, write: WritableStream<Uint8Array> }`. See [Streams](/client/streams).
+
+---
+
+### `connect_tls`
+
+```js
+await client.connect_tls(url)
+```
+
+Opens a TLS-wrapped TCP stream. The TLS handshake is performed inside the library using Rustls.
+
+<ParamField path="url" type="string | URL" required>
+  Target address in `"host:port"` form, e.g. `"example.com:443"`. The host name is also used as the TLS Server Name Indication (SNI) value.
+</ParamField>
+
+**Returns:** `Promise<EpoxyIoStream>` — `{ read: ReadableStream<Uint8Array>, write: WritableStream<Uint8Array> }`. See [Streams](/client/streams).
+
+---
+
+### `connect_udp`
+
+```js
+await client.connect_udp(url)
+```
+
+Opens a UDP datagram stream. Each `write` call sends one datagram; each `read` yields one datagram.
+
+<ParamField path="url" type="string | URL" required>
+  Target address in `"host:port"` form, e.g. `"127.0.0.1:5000"`.
+</ParamField>
+
+**Returns:** `Promise<EpoxyIoStream>` — `{ read: ReadableStream<Uint8Array>, write: WritableStream<Uint8Array> }`. See [Streams](/client/streams).
+
+---
+
+### `replace_stream_provider`
+
+```js
+await client.replace_stream_provider()
+```
+
+Reconnects the underlying Wisp multiplexer to the server. Call this to recover after the Wisp connection drops. All in-flight streams will be re-established against the new connection.
+
+**Returns:** `Promise<void>`
+
+---
+
+## Public Properties
+
+These properties can be read and written directly on a client instance after construction.
+
+<ParamField path="redirect_limit" type="number">
+  Maximum number of HTTP redirects to follow before returning the last response as-is. Defaults to `10`. Set to `0` to disable automatic redirect following (equivalent to `redirect: "manual"`).
+</ParamField>
+
+<ParamField path="user_agent" type="string">
+  The `User-Agent` header value sent with every `fetch` request. Defaults to the Chrome UA string set in `EpoxyClientOptions`. Can be overridden at any time.
+</ParamField>
+
+<ParamField path="buffer_size" type="number">
+  Internal read-buffer size in bytes used when bridging async Rust streams to Web Streams. Defaults to `16384` (16 KiB). Larger values may improve throughput at the cost of memory.
+</ParamField>
+
+---
+
+## Usage Example
+
+```js
+import init, { EpoxyClient, EpoxyClientOptions, EpoxyHandlers }
+  from "@mercuryworkshop/epoxy-tls/epoxy-bundled";
+
+// Initialize the WASM module (bundled build requires no path argument)
+await init();
+
+// Configure the client
+const options = new EpoxyClientOptions();
+options.user_agent = navigator.userAgent;
+options.wisp_v2 = true;
+
+// Construct the client — connects to a Wisp server over WebSocket
+const client = new EpoxyClient("wss://wisp.mercurywork.shop", options);
+
+// Establish the Wisp connection before sending any requests
+await client.replace_stream_provider();
+
+// --- fetch ---
+const res = await client.fetch("https://example.com");
+console.log(res.status, res.headers);
+console.log(await res.text());
+
+// POST with JSON body and custom header
+const postRes = await client.fetch("https://httpbin.org/post", {
+  method: "POST",
+  headers: { "Content-Type": "application/json", "X-Custom": "value" },
+  body: JSON.stringify({ hello: "world" }),
+});
+console.log(await postRes.json());
+
+// --- WebSocket (full build only) ---
+const handlers = new EpoxyHandlers(
+  ()    => console.log("ws opened"),
+  ()    => console.log("ws closed"),
+  err   => console.error("ws error", err),
+  msg   => console.log("ws message", msg),   // msg is string or ArrayBuffer
+);
+
+const ws = await client.connect_websocket(
+  handlers,
+  "wss://echo.websocket.events",
+  [],                          // no subprotocols
+  { "x-header": "abc" },      // extra upgrade headers
+);
+
+await ws.send("hello from epoxy!");
+```
+
+<Note>
+  `connect_websocket` and the `ws_title_case_headers` option are only available in the **full build**. The minimal build (`@mercuryworkshop/epoxy-tls/minimal` / `minimal-bundled`) omits them to reduce bundle size.
+</Note>

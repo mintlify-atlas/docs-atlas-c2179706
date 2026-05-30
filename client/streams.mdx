@@ -1,0 +1,175 @@
+---
+title: "EpoxyIoStream — TCP, TLS, and UDP raw streams"
+sidebarTitle: "Streams"
+description: "EpoxyIoStream is the { read, write } pair returned by connect_tcp, connect_tls, and connect_udp, exposing raw network I/O as Web Streams readable and writable stream objects."
+---
+
+`EpoxyIoStream` is the object returned by `connect_tcp`, `connect_tls`, and `connect_udp`. It gives you direct, byte-level access to the underlying network stream via the Web Streams API. All three methods return the same shape, letting you read and write `Uint8Array` data to and from the remote host.
+
+## Type Definition
+
+```typescript
+type EpoxyIoStream = {
+  read:  ReadableStream<Uint8Array>;
+  write: WritableStream<Uint8Array>;
+};
+```
+
+- **`read`** — a `ReadableStream<Uint8Array>` that yields chunks of bytes as they arrive from the remote peer.
+- **`write`** — a `WritableStream<Uint8Array>` that accepts `Uint8Array` chunks and forwards them to the remote peer.
+
+Use the standard Web Streams `getReader()` and `getWriter()` accessors to interact with these streams.
+
+## URL Format
+
+All three `connect_*` methods accept the target address as a `"host:port"` string (or a `URL` object). For example:
+
+```
+"example.com:443"
+"127.0.0.1:5000"
+"[::1]:8080"
+```
+
+The scheme part of a URL input is ignored; only the host and port are used to open the Wisp stream.
+
+---
+
+## TCP Stream
+
+Use `connect_tcp` for plain unencrypted TCP connections — for example, to speak a protocol that handles its own framing and does not use TLS.
+
+```js
+import init, { EpoxyClient, EpoxyClientOptions }
+  from "@mercuryworkshop/epoxy-tls/epoxy-bundled";
+
+await init();
+
+const options = new EpoxyClientOptions();
+options.user_agent = navigator.userAgent;
+options.wisp_v2 = true;
+
+const client = new EpoxyClient("wss://wisp.mercurywork.shop", options);
+await client.replace_stream_provider();
+
+const { read, write } = await client.connect_tcp("example.com:80");
+const reader = read.getReader();
+const writer = write.getWriter();
+
+const decoder = new TextDecoder();
+
+// Start reading in the background
+(async () => {
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done || !value) break;
+    console.log(decoder.decode(value));
+  }
+  console.log("TCP stream closed");
+})();
+
+// Send a raw HTTP/1.0 request
+await writer.write(
+  new TextEncoder().encode("GET / HTTP/1.0\r\nHost: example.com\r\n\r\n")
+);
+
+// Close the write side when done
+await writer.close();
+```
+
+---
+
+## TLS Stream
+
+Use `connect_tls` when you need TLS but want to handle the application protocol yourself (e.g., HTTPS manually, SMTP+STARTTLS, custom binary protocols). The TLS handshake is performed inside Epoxy using Rustls; you receive a plain byte stream after the handshake completes.
+
+```js
+import init, { EpoxyClient, EpoxyClientOptions }
+  from "@mercuryworkshop/epoxy-tls/epoxy-bundled";
+
+await init();
+
+const options = new EpoxyClientOptions();
+options.user_agent = navigator.userAgent;
+options.wisp_v2 = true;
+
+const client = new EpoxyClient("wss://wisp.mercurywork.shop", options);
+await client.replace_stream_provider();
+
+const decoder = new TextDecoder();
+
+// connect_tls uses the hostname for SNI automatically
+const { read, write } = await client.connect_tls("google.com:443");
+const reader = read.getReader();
+const writer = write.getWriter();
+
+console.log("TLS connection established");
+
+// Read responses in the background
+(async () => {
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done || !value) break;
+    console.log(decoder.decode(value));
+  }
+  console.log("TLS stream closed");
+})();
+
+// Write a minimal HTTP/1.1 request
+await writer.write(
+  new TextEncoder().encode("GET / HTTP/1.1\r\nHost: google.com\r\n\r\n")
+);
+
+// Give the server time to respond, then close
+await new Promise(res => setTimeout(res, 500));
+await writer.close();
+```
+
+---
+
+## UDP Stream
+
+Use `connect_udp` for datagram-oriented protocols such as DNS or custom game/media protocols. Each call to `writer.write()` sends exactly one datagram; each chunk yielded by `reader.read()` is exactly one received datagram.
+
+```js
+import init, { EpoxyClient, EpoxyClientOptions }
+  from "@mercuryworkshop/epoxy-tls/epoxy-bundled";
+
+await init();
+
+const options = new EpoxyClientOptions();
+options.user_agent = navigator.userAgent;
+options.wisp_v2 = true;
+options.udp_extension_required = true; // require server UDP support
+
+const client = new EpoxyClient("wss://wisp.mercurywork.shop", options);
+await client.replace_stream_provider();
+
+const decoder = new TextDecoder();
+
+// tokio echo-udp example: cargo r --example echo-udp -- 127.0.0.1:5000
+const { read, write } = await client.connect_udp("127.0.0.1:5000");
+const reader = read.getReader();
+const writer = write.getWriter();
+
+console.log("UDP stream opened");
+
+// Read incoming datagrams in the background
+(async () => {
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done || !value) break;
+    console.log("received datagram:", decoder.decode(value));
+  }
+  console.log("UDP stream closed");
+})();
+
+// Send datagrams in a loop
+while (true) {
+  await writer.write(new TextEncoder().encode("data"));
+  await new Promise(res => setTimeout(res, 100));
+}
+```
+
+<Note>
+  The `udp_extension_required` option in `EpoxyClientOptions` causes the client to fail with an error if the Wisp server does not support the UDP extension. If you omit it (or set it to `false`), `connect_udp` may still fail at runtime if the server doesn't support UDP — you just won't get an early error during connection setup.
+</Note>

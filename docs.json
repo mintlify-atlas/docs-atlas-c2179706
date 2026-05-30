@@ -1,72 +1,101 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mintlify Starter Kit",
+  "name": "Epoxy TLS",
+  "theme": "luma",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
-  },
-  "favicon": "/favicon.svg",
-  "navigation": {
-    "pages": [
-      {
-        "group": "Getting Started",
-        "pages": [
-          "index",
-          "quickstart"
-        ]
-      }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
+    "primary": "#6366f1",
+    "light": "#818cf8",
+    "dark": "#4338ca"
   },
   "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
     "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://app.mintlify.com"
+      "type": "github",
+      "href": "https://github.com/MercuryWorkshop/epoxy-tls"
     }
-  },
-  "contextual": {
-    "options": [
-      "copy",
-      "view",
-      "chatgpt",
-      "claude",
-      "perplexity",
-      "mcp",
-      "cursor",
-      "vscode"
-    ]
   },
   "footer": {
     "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
+      "github": "https://github.com/MercuryWorkshop/epoxy-tls"
     }
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Client",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "client/quickstart",
+              "client/installation"
+            ]
+          },
+          {
+            "group": "API Reference",
+            "pages": [
+              "client/epoxy-client",
+              "client/epoxy-client-options",
+              "client/epoxy-handlers",
+              "client/streams",
+              "client/transport"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "client/fetch",
+              "client/websocket",
+              "client/raw-streams",
+              "client/bundle-variants"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Server",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "server/overview",
+              "server/building",
+              "server/running"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "server/config-server",
+              "server/config-wisp",
+              "server/config-stream"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "wisp-mux",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "wisp/overview",
+              "wisp/client-mux",
+              "wisp/server-mux"
+            ]
+          },
+          {
+            "group": "Extensions",
+            "pages": [
+              "wisp/extensions-overview",
+              "wisp/extension-udp",
+              "wisp/extension-password",
+              "wisp/extension-certificate",
+              "wisp/extension-motd"
+            ]
+          }
+        ]
+      }
+    ]
   }
 }

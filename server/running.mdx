@@ -1,0 +1,108 @@
+---
+title: "Running and deploying epoxy-server"
+sidebarTitle: "Running"
+description: "Start epoxy-server by generating a default config file, customising it, and passing it as an argument. Includes systemd unit and reverse-proxy guidance."
+---
+
+Once you have a compiled `epoxy-server` binary (see [Building](/server/building)), getting the server running takes only a few steps: generate a default configuration file, edit it to suit your environment, and launch the binary. epoxy-server reads its entire runtime configuration from a single TOML, JSON, or YAML file — there are no environment-variable knobs or flags beyond the ones documented below.
+
+## Quick start
+
+<Steps>
+  <Step title="Generate the default configuration">
+    Print the built-in defaults to a file so you have a starting point:
+
+    ```bash
+    epoxy-server --default-config > config.toml
+    ```
+
+    The file is written in TOML by default. To generate JSON or YAML instead, pass `--format` before `--default-config`:
+
+    ```bash
+    epoxy-server --format json  --default-config > config.json
+    epoxy-server --format yaml  --default-config > config.yaml
+    ```
+  </Step>
+  <Step title="Edit the configuration file">
+    Open `config.toml` in your editor and adjust it for your deployment. The most common settings to change are:
+
+    - **`server.bind`** — the address and socket type to listen on (default: `["tcp", "127.0.0.1:4000"]`)
+    - **`server.tls_keypair`** — paths to your PEM certificate and key if you want epoxy-server to terminate TLS directly
+    - **`wisp.wisp_v2`** — enable or disable Wisp version 2 extensions
+    - **`wisp.auth_extension`** — set to `"password"` or `"certificate"` to require client authentication
+    - **`stream.allow_hosts` / `stream.block_hosts`** — regex lists controlling which destinations clients may reach
+
+    See the [configuration reference](/server/config-server) for every available key.
+  </Step>
+  <Step title="Start the server">
+    Pass the path to your configuration file as the sole positional argument:
+
+    ```bash
+    epoxy-server config.toml
+    ```
+
+    epoxy-server logs to standard output. The first line printed will confirm the address, runtime flavour, and transport:
+
+    ```
+    [INFO  epoxy_server] listening on (Tcp, "127.0.0.1:4000") with runtime flavor MultiThread and socket transport WebSocket
+    ```
+  </Step>
+</Steps>
+
+## CLI reference
+
+| Argument | Short | Description |
+|---|---|---|
+| `<config>` | — | Path to the configuration file (TOML by default). If omitted, built-in defaults are used. |
+| `--format <fmt>` | `-f` | Config file format: `toml` (default), `json`, or `yaml`. Must precede the config path if used together. |
+| `--default-config` | — | Print the default configuration in the selected format and exit immediately. |
+
+<Tip>
+  Use `--format json --default-config` to get the defaults as JSON — convenient for piping into tools like `jq` or for bootstrapping an automated deployment that stores config as JSON:
+
+  ```bash
+  epoxy-server --format json --default-config | jq '.server.bind'
+  ```
+</Tip>
+
+## Running as a systemd service
+
+For long-running deployments, manage epoxy-server with systemd. Create a unit file at `/etc/systemd/system/epoxy-server.service`:
+
+```ini
+[Unit]
+Description=epoxy-server Wisp proxy
+After=network.target
+
+[Service]
+Type=simple
+User=epoxy
+Group=epoxy
+ExecStart=/usr/local/bin/epoxy-server /etc/epoxy-server/config.toml
+Restart=on-failure
+RestartSec=5s
+
+# Allow binding to privileged ports if needed (e.g. 443)
+# AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start the service:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now epoxy-server
+sudo systemctl status epoxy-server
+```
+
+To print a stats snapshot to the journal at any time, send `SIGUSR1`:
+
+```bash
+sudo systemctl kill -s USR1 epoxy-server
+```
+
+<Note>
+  By default epoxy-server binds to `127.0.0.1:4000` and serves plain WebSocket connections without TLS. If you expose it to the internet you should either place a TLS-terminating reverse proxy (such as Nginx or Caddy) in front of it, or configure a TLS listener directly in the config by setting `server.bind` to `["tlstcp", "0.0.0.0:443"]` and providing `server.tls_keypair` with paths to your PEM certificate and private key.
+</Note>

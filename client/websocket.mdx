@@ -1,0 +1,198 @@
+---
+title: "Proxying WebSocket connections with Epoxy TLS"
+sidebarTitle: "WebSocket"
+description: "Open full-duplex WebSocket connections to any server through a Wisp proxy using EpoxyHandlers and connect_websocket in the Epoxy TLS full build."
+---
+
+`connect_websocket()` establishes a WebSocket connection to a remote server by tunneling through your Wisp proxy. You register event callbacks through an `EpoxyHandlers` object before connecting, and the returned `EpoxyWebSocket` instance exposes a `send()` method for writing data in either direction.
+
+<Note>
+  `connect_websocket()` and `EpoxyHandlers` are only available in the **full** build of Epoxy TLS. The minimal build does not include WebSocket connect support. Import from `@mercuryworkshop/epoxy-tls` or `@mercuryworkshop/epoxy-tls/epoxy` to get the full build. See [Bundle Variants](/client/bundle-variants).
+</Note>
+
+## Creating EpoxyHandlers
+
+`EpoxyHandlers` wraps the four lifecycle callbacks that map to familiar WebSocket events. All four are required — the constructor will reject with an error if any are missing.
+
+```javascript
+import init, {
+  EpoxyClient,
+  EpoxyClientOptions,
+  EpoxyHandlers,
+} from "@mercuryworkshop/epoxy-tls";
+
+await init();
+
+const options = new EpoxyClientOptions();
+options.user_agent = navigator.userAgent;
+options.wisp_v2 = true;
+
+const client = new EpoxyClient("wss://wisp.mercurywork.shop", options);
+
+const handlers = new EpoxyHandlers(
+  // onopen — called when the connection is established
+  () => {
+    console.log("WebSocket opened");
+  },
+  // onclose — called when the connection is closed by either side
+  () => {
+    console.log("WebSocket closed");
+  },
+  // onerror — called on any connection or protocol error
+  (err) => {
+    console.error("WebSocket error:", err);
+  },
+  // onmessage — called for every incoming message (string or ArrayBuffer)
+  (msg) => {
+    console.log("Received:", msg);
+  },
+);
+```
+
+## Connecting to a WebSocket server
+
+Call `connect_websocket(handlers, url, protocols, headers)` on your `EpoxyClient` instance. The call is `async` and resolves once the opening handshake completes.
+
+| Parameter | Type | Description |
+|---|---|---|
+| `handlers` | `EpoxyHandlers` | Event callbacks created above |
+| `url` | `string \| URL` | WebSocket URL (`ws://` or `wss://`) |
+| `protocols` | `string[]` | Requested subprotocols (may be empty) |
+| `headers` | `Headers \| { [key: string]: string }` | Extra HTTP upgrade headers |
+
+```javascript
+const ws = await client.connect_websocket(
+  handlers,
+  "wss://echo.websocket.events",
+  [],           // no subprotocol requested
+  {},           // no extra headers
+);
+```
+
+### Requesting subprotocols
+
+Pass the subprotocol names you want to negotiate in the third argument. The server selects one from the list (or rejects them all).
+
+```javascript
+const ws = await client.connect_websocket(
+  handlers,
+  "wss://example.com/socket",
+  ["graphql-ws", "graphql-transport-ws"],
+  {},
+);
+```
+
+### Sending custom upgrade headers
+
+Provide arbitrary HTTP headers that are forwarded with the `GET` upgrade request. This is useful for authentication tokens or proprietary handshake parameters.
+
+```javascript
+const ws = await client.connect_websocket(
+  handlers,
+  "wss://api.example.com/live",
+  [],
+  {
+    "Authorization": "Bearer eyJhbGci...",
+    "X-Client-Version": "1.0.0",
+  },
+);
+```
+
+## Sending messages
+
+`EpoxyWebSocket.send()` accepts either a text string or binary data.
+
+```javascript
+// Send a UTF-8 text frame
+await ws.send("hello, server!");
+
+// Send a binary frame from an ArrayBuffer
+const buf = new TextEncoder().encode("binary payload");
+await ws.send(buf.buffer); // ArrayBuffer
+
+// Send a binary frame from a Uint8Array
+await ws.send(buf);
+```
+
+## Complete working example
+
+The following example mirrors the WebSocket test found in `demo.js`. It connects to a public echo server, sends incrementing messages on a timer, and logs every echoed reply.
+
+```javascript
+import init, {
+  EpoxyClient,
+  EpoxyClientOptions,
+  EpoxyHandlers,
+} from "@mercuryworkshop/epoxy-tls";
+
+await init();
+
+const options = new EpoxyClientOptions();
+options.user_agent = navigator.userAgent;
+options.wisp_v2 = true;
+
+const client = new EpoxyClient("wss://wisp.mercurywork.shop", options);
+await client.replace_stream_provider();
+
+const handlers = new EpoxyHandlers(
+  () => console.log("opened"),
+  () => console.log("closed"),
+  (err) => console.error("error:", err),
+  (msg) => console.log(`received: "${msg}"`),
+);
+
+const ws = await client.connect_websocket(
+  handlers,
+  "wss://echo.websocket.events",
+  [],
+  { "x-header": "abc" },
+);
+
+let i = 0;
+while (true) {
+  console.log(`sending "data${i}"`);
+  await ws.send("data" + i);
+  i++;
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
+```
+
+## Error handling and cleanup
+
+The `onerror` callback receives a JavaScript `Error` describing what went wrong — network failures, TLS errors, and invalid frames all surface here. Use it to update UI state and decide whether to reconnect.
+
+The `onclose` callback fires after the connection has fully closed, regardless of which side initiated the close. Perform any teardown (timers, UI updates, reconnect logic) here rather than relying on `onerror` alone, since a clean close does not trigger `onerror`.
+
+```javascript
+let reconnectTimer = null;
+
+const handlers = new EpoxyHandlers(
+  () => {
+    console.log("connected");
+    clearTimeout(reconnectTimer);
+  },
+  () => {
+    console.log("disconnected — scheduling reconnect in 3 s");
+    reconnectTimer = setTimeout(connect, 3000);
+  },
+  (err) => {
+    console.error("socket error:", err);
+    // onclose will also fire, so reconnect logic lives there
+  },
+  (msg) => {
+    handleMessage(msg);
+  },
+);
+
+async function connect() {
+  const ws = await client.connect_websocket(
+    handlers,
+    "wss://example.com/live",
+    [],
+    {},
+  );
+  ws.send("hello");
+}
+
+connect();
+```

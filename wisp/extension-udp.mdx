@@ -1,0 +1,117 @@
+---
+title: "UDP extension for wisp-mux Wisp v2 streams"
+sidebarTitle: "UDP Extension"
+description: "The UDP protocol extension (ID 0x01) enables StreamType::Udp streams through a Wisp v2 connection. Without it, only TCP streams are available."
+---
+
+The UDP protocol extension unlocks `StreamType::Udp` in wisp-mux. When the extension is negotiated during the Wisp v2 handshake, both sides agree to support UDP streams in addition to the default TCP streams. The extension carries no payload — its presence alone signals support.
+
+## Extension details
+
+| Field | Value |
+|-------|-------|
+| Extension ID | `0x01` |
+| Struct | `UdpProtocolExtension` |
+| Builder | `UdpProtocolExtensionBuilder` |
+| Feature gate | none (always available) |
+
+<Warning>
+  Without the UDP extension, calling `ClientMux::new_stream(StreamType::Udp, …)` returns `WispError::ExtensionsNotSupported`. Always verify the extension was accepted before opening UDP streams, either by using `with_required_extensions` or by checking `mux.get_extensions().find_extension::<UdpProtocolExtension>()`.
+</Warning>
+
+## Client setup
+
+<Steps>
+  <Step title="Add the builder to your extension list">
+    Create an `AnyProtocolExtensionBuilder` wrapping `UdpProtocolExtensionBuilder` and push it into your extensions vector.
+
+    ```rust
+    use wisp_mux::extensions::{
+        udp::{UdpProtocolExtension, UdpProtocolExtensionBuilder},
+        AnyProtocolExtensionBuilder,
+    };
+
+    let mut extensions: Vec<AnyProtocolExtensionBuilder> = Vec::new();
+    extensions.push(AnyProtocolExtensionBuilder::new(UdpProtocolExtensionBuilder));
+    ```
+  </Step>
+
+  <Step title="Pass extensions to WispV2Handshake">
+    Provide the extension list when opening the mux. Use `with_required_extensions` to abort the connection if the server did not negotiate UDP.
+
+    ```rust
+    use wisp_mux::{ClientMux, WispV2Handshake};
+
+    let (mux, fut) = ClientMux::new(rx, tx, Some(WispV2Handshake::new(extensions)))
+        .await?
+        .with_required_extensions(&[UdpProtocolExtension::ID])
+        .await?;
+    ```
+  </Step>
+
+  <Step title="Open a UDP stream">
+    Once the mux is ready, call `new_stream` with `StreamType::Udp`.
+
+    ```rust
+    use wisp_mux::packet::StreamType;
+
+    let stream = mux
+        .new_stream(StreamType::Udp, "8.8.8.8".to_string(), 53)
+        .await?;
+    ```
+  </Step>
+</Steps>
+
+## Server setup
+
+On the server side, include `UdpProtocolExtensionBuilder` in the extension list passed to the server mux. No additional configuration is required.
+
+```rust
+use wisp_mux::extensions::{
+    udp::UdpProtocolExtensionBuilder,
+    AnyProtocolExtensionBuilder,
+};
+
+let extensions: Vec<AnyProtocolExtensionBuilder> = vec![
+    AnyProtocolExtensionBuilder::new(UdpProtocolExtensionBuilder),
+];
+```
+
+## Example: simple-wisp-client with UDP
+
+The following excerpt is taken from `simple-wisp-client` and shows how the UDP extension integrates with the full connection setup, including optional `with_required_extensions` enforcement when the `--udp` flag is provided.
+
+```rust
+use wisp_mux::{
+    extensions::{
+        udp::{UdpProtocolExtension, UdpProtocolExtensionBuilder},
+        AnyProtocolExtensionBuilder,
+    },
+    ClientMux, WispV2Handshake,
+};
+
+let mut extensions: Vec<AnyProtocolExtensionBuilder> = Vec::new();
+let mut extension_ids: Vec<u8> = Vec::new();
+
+if opts.udp {
+    extensions.push(AnyProtocolExtensionBuilder::new(
+        UdpProtocolExtensionBuilder,
+    ));
+    extension_ids.push(UdpProtocolExtension::ID);
+}
+
+let (mux, fut) = if opts.wisp_v2 {
+    ClientMux::new(rx, tx, Some(WispV2Handshake::new(extensions)))
+        .await?
+        .with_required_extensions(extension_ids.as_slice())
+        .await?
+} else {
+    ClientMux::new(rx, tx, None)
+        .await?
+        .with_no_required_extensions()
+};
+```
+
+<Tip>
+  When `opts.wisp_v2` is `false` the client falls back to a plain Wisp v1 connection and no extensions are used. You can detect this after the fact with `mux.was_downgraded()`.
+</Tip>

@@ -1,0 +1,91 @@
+---
+title: "Epoxy TLS: Encrypted Proxy for Browser JavaScript"
+sidebarTitle: "Introduction"
+description: "Epoxy TLS runs TLS inside WebAssembly to let browser JavaScript make HTTPS and WebSocket requests that bypass CORS without sacrificing security."
+---
+
+Epoxy TLS is an encrypted proxy toolkit for browser JavaScript. It runs full SSL/TLS inside WebAssembly and uses the [Wisp protocol](https://github.com/mercuryworkshop/wisp-protocol/) to multiplex TCP and UDP connections over a single WebSocket — letting you make real HTTPS, WebSocket, TCP, and UDP connections from any browser page without CORS restrictions.
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/client/quickstart">
+    Make your first proxied fetch request in under 5 minutes
+  </Card>
+  <Card title="Installation" icon="package" href="/client/installation">
+    Install the npm package and learn about bundle variants
+  </Card>
+  <Card title="EpoxyClient API" icon="code" href="/client/epoxy-client">
+    Full reference for the EpoxyClient class and all its methods
+  </Card>
+  <Card title="Server Setup" icon="server" href="/server/overview">
+    Deploy epoxy-server, the high-performance Wisp server written in Rust
+  </Card>
+</CardGroup>
+
+## How it works
+
+Traditional browser JavaScript is constrained by CORS — servers must explicitly allow cross-origin requests. Epoxy TLS sidesteps this entirely by tunneling your traffic through a Wisp server you control:
+
+1. **epoxy-client** (WebAssembly) establishes a WebSocket connection to your Wisp server
+2. Inside WASM, it performs a real TLS handshake with the destination server using [rustls](https://github.com/rustls/rustls)
+3. HTTP requests, WebSocket connections, and raw TCP/UDP streams flow through the encrypted tunnel
+
+Because TLS runs inside WASM rather than in the browser's network stack, the browser never sees the unencrypted traffic — your security properties are preserved even though CORS is bypassed.
+
+## What's included
+
+<CardGroup cols={3}>
+  <Card title="epoxy-client" icon="browser" href="/client/quickstart">
+    npm package (`@mercuryworkshop/epoxy-tls`) with `fetch()`, WebSocket, TCP, TLS, and UDP APIs
+  </Card>
+  <Card title="epoxy-server" icon="server" href="/server/overview">
+    Performant Rust Wisp server binary with TLS, authentication, and host/port filtering
+  </Card>
+  <Card title="wisp-mux" icon="cubes" href="/wisp/overview">
+    Rust crate for building custom Wisp v1/v2 clients and servers with extension support
+  </Card>
+</CardGroup>
+
+## Key features
+
+- **True end-to-end encryption** — TLS runs in WASM; the proxy server never sees plaintext
+- **Full HTTP/2 support** — including streaming request/response bodies and gzip/brotli decompression
+- **WebSocket proxying** — connect to any WebSocket server with custom headers and subprotocols
+- **Raw stream access** — open TCP, TLS, and UDP streams as `ReadableStream`/`WritableStream` pairs
+- **Wisp v2 extensions** — UDP, MOTD, password authentication, certificate authentication
+- **Custom transports** — bring your own `ReadableStream`/`WritableStream` transport instead of a URL
+- **Minimal bundle variant** — HTTP/1-only build for smaller WASM payload sizes
+
+<Note>
+  Epoxy TLS requires a self-hosted Wisp server. The MercuryWorkshop demo server at `wss://wisp.mercurywork.shop` is available for testing but is throttled. Deploy [epoxy-server](/server/overview) for production use.
+</Note>
+
+## Quick example
+
+```javascript
+import init, { EpoxyClient, EpoxyClientOptions } from "@mercuryworkshop/epoxy-tls";
+
+await init();
+
+const options = new EpoxyClientOptions();
+options.wisp_v2 = true;
+
+const client = new EpoxyClient("wss://your-wisp-server.example.com", options);
+
+const res = await client.fetch("https://example.com");
+console.log(await res.text());
+```
+
+<CardGroup cols={2}>
+  <Card title="Fetch Guide" icon="arrow-right-arrow-left" href="/client/fetch">
+    HTTP requests with headers, bodies, redirects, and streaming
+  </Card>
+  <Card title="WebSocket Guide" icon="plug" href="/client/websocket">
+    Proxy WebSocket connections with custom protocols and headers
+  </Card>
+  <Card title="Raw Streams" icon="pipe-section" href="/client/raw-streams">
+    Access raw TCP, TLS, and UDP as Web Streams API streams
+  </Card>
+  <Card title="Bundle Variants" icon="box" href="/client/bundle-variants">
+    Choose between full and minimal builds for your use case
+  </Card>
+</CardGroup>

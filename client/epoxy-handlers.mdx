@@ -1,0 +1,103 @@
+---
+title: "EpoxyHandlers — WebSocket event callbacks"
+sidebarTitle: "EpoxyHandlers"
+description: "EpoxyHandlers bundles the four WebSocket lifecycle callbacks — onopen, onclose, onerror, and onmessage — required by EpoxyClient.connect_websocket in the full build."
+---
+
+`EpoxyHandlers` is a simple container for the four event-handler functions that `connect_websocket` needs to route WebSocket lifecycle events back to your JavaScript code. All four callbacks are required; there are no optional handlers. Pass an `EpoxyHandlers` instance as the first argument to `EpoxyClient.connect_websocket`.
+
+<Note>
+  `EpoxyHandlers` is only available in the **full build** (`@mercuryworkshop/epoxy-tls/epoxy` or `@mercuryworkshop/epoxy-tls/epoxy-bundled`). It does not exist in the minimal build. See the [EpoxyClient](/client/epoxy-client) page for details on which features require the full build.
+</Note>
+
+## Constructor
+
+```js
+new EpoxyHandlers(onopen, onclose, onerror, onmessage)
+```
+
+All four arguments are positional and required. They are stored as plain function references on the resulting object (`handlers.onopen`, `handlers.onclose`, etc.).
+
+<ParamField path="onopen" type="() => void" required>
+  Called once when the proxied WebSocket connection has been successfully established and the server has completed the upgrade handshake. Receives no arguments.
+</ParamField>
+
+<ParamField path="onclose" type="() => void" required>
+  Called when the WebSocket connection is closed, either cleanly by the remote peer or because the underlying Wisp stream ended. Receives no arguments.
+</ParamField>
+
+<ParamField path="onerror" type="(error: any) => void" required>
+  Called if an error occurs during the connection or while reading frames. The `error` argument is the underlying error value — typically a JavaScript `Error` object or an `EpoxyError` string.
+</ParamField>
+
+<ParamField path="onmessage" type="(data: string | ArrayBuffer) => void" required>
+  Called for every incoming WebSocket message frame. The type of `data` depends on the frame type sent by the server:
+  - **Text frames** — `data` is a JavaScript `string`.
+  - **Binary frames** — `data` is an `ArrayBuffer`.
+
+  Your handler should check `typeof data === "string"` or `data instanceof ArrayBuffer` to branch accordingly.
+</ParamField>
+
+---
+
+## Usage Example
+
+The example below mirrors the WebSocket test from the demo, using an echo server to demonstrate the full roundtrip.
+
+```js
+import init, { EpoxyClient, EpoxyClientOptions, EpoxyHandlers }
+  from "@mercuryworkshop/epoxy-tls/epoxy-bundled";
+
+await init();
+
+const options = new EpoxyClientOptions();
+options.user_agent = navigator.userAgent;
+options.wisp_v2 = true;
+
+const client = new EpoxyClient("wss://wisp.mercurywork.shop", options);
+await client.replace_stream_provider();
+
+// Build the handlers before opening the socket
+const handlers = new EpoxyHandlers(
+  // onopen — connection is ready
+  () => {
+    console.log("WebSocket opened");
+  },
+
+  // onclose — connection ended
+  () => {
+    console.log("WebSocket closed");
+  },
+
+  // onerror — something went wrong
+  (err) => {
+    console.error("WebSocket error:", err);
+  },
+
+  // onmessage — incoming frame
+  (data) => {
+    if (typeof data === "string") {
+      console.log("Text message:", data);
+    } else {
+      // binary frame
+      const view = new Uint8Array(data);
+      console.log("Binary message, byte length:", view.byteLength);
+    }
+  },
+);
+
+// Open the proxied WebSocket
+const ws = await client.connect_websocket(
+  handlers,
+  "wss://echo.websocket.events",
+  [],                       // no subprotocols
+  { "x-header": "abc" },   // extra upgrade headers
+);
+
+// Send a text frame
+await ws.send("hello, epoxy!");
+
+// Send a binary frame
+const bytes = new TextEncoder().encode("binary payload");
+await ws.send(bytes.buffer);
+```

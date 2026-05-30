@@ -1,0 +1,72 @@
+---
+title: "Building epoxy-server from source"
+sidebarTitle: "Building"
+description: "Compile epoxy-server from the epoxy-tls repository using the Rust stable toolchain, with optional CPU-specific and feature flag optimizations."
+---
+
+epoxy-server is distributed as source code inside the [epoxy-tls](https://github.com/MercuryWorkshop/epoxy-tls) monorepo. Building it requires only the Rust stable toolchain — no external C libraries or system dependencies beyond a standard Linux environment.
+
+## Prerequisites
+
+- **Rust stable toolchain** — install via [rustup](https://rustup.rs/): `rustup toolchain install stable`
+- **Cargo** — included with every Rust toolchain installation
+- **Git** — to clone the repository (the build script reads the git SHA at compile time using `vergen-git2`)
+
+## Building
+
+Clone the repository and run the release build from the repository root (or from inside the `server/` subdirectory):
+
+```bash
+# From the repo root
+cargo build -r -p epoxy-server
+
+# Or equivalently, from the server/ subdirectory
+cd server
+cargo build -r
+```
+
+The compiled binary is placed at:
+
+```
+target/release/epoxy-server
+```
+
+### CPU-specific optimization
+
+Cargo's release profile already enables link-time optimisation and single-codegen-unit compilation (see the note below). You can squeeze out additional throughput by telling the compiler to target the exact instruction set of the machine that will run the server:
+
+```bash
+RUSTFLAGS="-C target-cpu=native" cargo build -r -p epoxy-server
+```
+
+<Warning>
+  Binaries built with `target-cpu=native` are not portable — they may crash with an illegal-instruction error on CPUs that lack the extensions (e.g. AVX-512) used by the build machine. Build on the same machine you intend to deploy on, or use a profile that matches your lowest common denominator.
+</Warning>
+
+## Optional feature flags
+
+The default build includes TOML config support. Additional features can be enabled with `--features`:
+
+| Feature flag | What it adds | Enabled by default |
+|---|---|---|
+| `toml` | TOML config file format (`serde` + `toml` crate) | ✅ |
+| `yaml` | YAML config file format (`serde_yaml` crate) | ❌ |
+| `speed-limit` | Per-connection read/write rate limiting via `async-speed-limit` | ❌ |
+| `twisp` | TWisp terminal-stream extension (`pty-process`, `libc`, `shell-words`) | ❌ |
+| `tokio-console` | [Tokio Console](https://github.com/tokio-rs/console) runtime diagnostics | ❌ |
+
+To build with YAML support and rate limiting enabled:
+
+```bash
+cargo build -r -p epoxy-server --features yaml,speed-limit
+```
+
+To build with every optional feature:
+
+```bash
+cargo build -r -p epoxy-server --features yaml,speed-limit,twisp
+```
+
+<Note>
+  The workspace `[profile.release]` sets `lto = true`, `codegen-units = 1`, `opt-level = 3`, and `panic = "abort"`. These settings are already in place in the repository and apply automatically to every `cargo build -r` invocation — no extra flags are needed to get a fully optimised binary. Debug info (`debug = true`) is also retained so that crash traces are readable, but the binary is not stripped, so you may wish to run `strip target/release/epoxy-server` before shipping to save disk space.
+</Note>

@@ -1,0 +1,265 @@
+---
+title: "ClientMux — building a Wisp client with wisp-mux"
+sidebarTitle: "ClientMux"
+description: "How to create a ClientMux, open TCP and UDP streams, configure Wisp v2 extensions, and handle errors in wisp-mux."
+---
+
+`ClientMux<W>` is a type alias for `Multiplexor<ClientImpl, W>` that represents the client side of a Wisp connection. Once created it manages all stream lifecycle events—opening, flow-control, and closing—over a single WebSocket transport. You interact with individual connections through `MuxStream` handles that implement both `Stream` and `Sink<Payload>`, and can be split into independent read and write halves.
+
+## Creating a ClientMux step by step
+
+<Steps>
+  <Step title="Connect the WebSocket">
+    Use whichever backend is enabled in your `Cargo.toml`. With the `tokio-websockets` feature the transport is a `TokioWebsocketsTransport` wrapper:
+
+    ```rust
+    use wisp_mux::ws::{TokioWebsocketsTransport, TransportExt};
+    use hyper::Uri;
+
+    let uri: Uri = "ws://localhost:4000".parse()?;
+
+    let (ws_stream, _response) = tokio_websockets::ClientBuilder::from_uri(uri)
+        .connect()
+        .await?;
+
+    let transport = TokioWebsocketsTransport(ws_stream);
+    ```
+  </Step>
+
+  <Step title="Split the transport into rx / tx">
+    `ClientMux::new` takes separate read and write halves. Call `split_fast` from the `TransportExt` trait to obtain them:
+
+    ```rust
+    use wisp_mux::ws::TransportExt;
+
+    let (rx, tx) = transport.split_fast();
+    ```
+
+    Any type that implements `TransportRead` (a `Stream<Item = Result<Payload, WispError>>`) and `TransportWrite` (a `Sink<Payload, Error = WispError>`) is accepted. You can also implement these traits yourself for custom transports.
+  </Step>
+
+  <Step title="Call ClientMux::new">
+    Pass `None` for a plain Wisp v1 connection, or a `WispV2Handshake` to attempt v2:
+
+    ```rust
+    use wisp_mux::{ClientMux, WispV2Handshake};
+
+    // Wisp v1 — no extension negotiation
+    let mux_result = ClientMux::new(rx, tx, None).await?;
+
+    // Wisp v2 — with extension builders (see "Wisp v2 setup" below)
+    // let mux_result = ClientMux::new(rx, tx, Some(WispV2Handshake::new(extensions))).await?;
+    ```
+
+    `ClientMux::new` performs the handshake (sends / receives the INFO packet and the initial CONTINUE packet) before returning.
+  </Step>
+
+  <Step title="Resolve required extensions">
+    `new` returns a `MuxResult` rather than the multiplexor directly. This lets you assert that certain extensions are available before proceeding:
+
+    ```rust
+    use wisp_mux::extensions::udp::UdpProtocolExtension;
+
+    // No extension requirements — always succeeds
+    let (mux, actor_fut) = mux_result.with_no_required_extensions();
+
+    // Require UDP support — closes the connection and returns Err if absent
+    // let (mux, actor_fut) = mux_result.with_udp_extension_required().await?;
+
+    // Require an arbitrary set of extensions by ID
+    // let (mux, actor_fut) = mux_result
+    //     .with_required_extensions(&[UdpProtocolExtension::ID])
+    //     .await?;
+    ```
+  </Step>
+
+  <Step title="Spawn the actor future">
+    The second element returned by the resolution step is a `MultiplexorActorFuture`—a pinned, boxed future that drives all internal event processing. You **must** either `await` it or spawn it concurrently. If it stops, all streams are severed.
+
+    ```rust
+    // Run alongside other tasks on a Tokio runtime
+    tokio::spawn(actor_fut);
+    ```
+  </Step>
+
+  <Step title="Open a stream">
+    Call `new_stream` with the stream type, target host, and port. This sends a CONNECT packet and returns a `MuxStream` once the server acknowledges:
+
+    ```rust
+    use wisp_mux::packet::StreamType;
+
+    let stream = mux
+        .new_stream(StreamType::Tcp, "example.com".to_string(), 80)
+        .await?;
+    ```
+
+    For UDP streams pass `StreamType::Udp`. The call returns `WispError::ExtensionsNotSupported` if the UDP extension was not negotiated during the handshake.
+  </Step>
+
+  <Step title="Use the stream's read and write halves">
+    `MuxStream` itself implements `Stream<Item = Result<Payload, WispError>>` and `Sink<Payload>`, so you can use it directly with `futures` combinators. For independent read/write tasks, call `into_split`:
+
+    ```rust
+    use futures::SinkExt;
+
+    let (mut read_half, mut write_half) = stream.into_split();
+
+    // Write raw bytes
+    write_half.feed(bytes::Bytes::from("GET / HTTP/1.1\r\n\r\n")).await?;
+    write_half.flush().await?;
+
+    // Read responses via the Stream trait
+    use futures::StreamExt;
+    while let Some(chunk) = read_half.next().await {
+        let data = chunk?;
+        // process data…
+    }
+    ```
+
+    Alternatively, `into_async_rw()` wraps the stream into an `AsyncRead + AsyncWrite` value (`MuxStreamAsyncRW`) for use with Tokio I/O utilities.
+  </Step>
+</Steps>
+
+## Complete example — TCP throughput test
+
+The code below is adapted from `simple-wisp-client`, the reference client that ships with the Epoxy TLS project. It opens multiple concurrent TCP streams and feeds zero-filled packets as fast as the server's flow-control window allows:
+
+```rust
+use bytes::Bytes;
+use futures::SinkExt;
+use wisp_mux::{
+    extensions::{
+        password::PasswordProtocolExtensionBuilder,
+        udp::{UdpProtocolExtension, UdpProtocolExtensionBuilder},
+        AnyProtocolExtensionBuilder,
+    },
+    packet::StreamType,
+    ws::{TokioWebsocketsTransport, TransportExt, TransportWrite},
+    ClientMux, WispError, WispV2Handshake,
+};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let uri: hyper::Uri = "ws://localhost:4000".parse()?;
+
+    // 1. Connect and split the transport
+    let (rx, tx) = TokioWebsocketsTransport(
+        tokio_websockets::ClientBuilder::from_uri(uri)
+            .connect()
+            .await?
+            .0,
+    )
+    .split_fast();
+
+    // 2. Build Wisp v2 extension list
+    let extensions: Vec<AnyProtocolExtensionBuilder> = vec![
+        AnyProtocolExtensionBuilder::new(UdpProtocolExtensionBuilder),
+    ];
+
+    // 3. Perform the handshake and require UDP support
+    let (mux, actor_fut) = ClientMux::new(rx, tx, Some(WispV2Handshake::new(extensions)))
+        .await?
+        .with_required_extensions(&[UdpProtocolExtension::ID])
+        .await?;
+
+    println!(
+        "connected — downgraded: {}, extensions: {:?}",
+        mux.was_downgraded(),
+        mux.get_extension_ids(),
+    );
+
+    // 4. Spawn the actor so it runs concurrently
+    tokio::spawn(actor_fut);
+
+    // 5. Open a stream and write in a loop
+    let (_read_half, mut write_half) = mux
+        .new_stream(StreamType::Tcp, "127.0.0.1".to_string(), 9000)
+        .await?
+        .into_split();
+
+    let payload = Bytes::from(vec![0u8; 1024]);
+    loop {
+        write_half.feed(payload.clone()).await?;
+    }
+}
+```
+
+## Wisp v2 setup
+
+Construct a `WispV2Handshake` with the extension builders you want to advertise. The server picks which ones it supports; after the handshake, call `get_extensions()` or `get_extension_ids()` to inspect what was actually negotiated.
+
+```rust
+use wisp_mux::{
+    extensions::{
+        cert::{CertAuthProtocolExtensionBuilder, SigningKey},
+        motd::MotdProtocolExtensionBuilder,
+        password::PasswordProtocolExtensionBuilder,
+        udp::UdpProtocolExtensionBuilder,
+        AnyProtocolExtensionBuilder,
+    },
+    WispV2Handshake,
+};
+
+let mut handshake = WispV2Handshake::new(vec![
+    AnyProtocolExtensionBuilder::new(UdpProtocolExtensionBuilder),
+    AnyProtocolExtensionBuilder::new(MotdProtocolExtensionBuilder::Client),
+    AnyProtocolExtensionBuilder::new(
+        PasswordProtocolExtensionBuilder::new_client(Some((
+            "alice".to_string(),
+            "hunter2".to_string(),
+        )))
+    ),
+]);
+
+// Extensions can also be added after construction
+// handshake.add_extension(AnyProtocolExtensionBuilder::new(...));
+```
+
+Pass this value as the third argument to `ClientMux::new`.
+
+<Note>
+Not every extension you advertise is guaranteed to be supported by the server. Always inspect `mux.get_extensions()` or use `with_required_extensions` if your application requires a specific extension.
+</Note>
+
+## Checking version downgrade
+
+When the server does not support Wisp v2, the client automatically falls back to v1. You can detect this after the handshake:
+
+```rust
+if mux.was_downgraded() {
+    println!("server only supports Wisp v1 — extension features unavailable");
+}
+```
+
+## Closing the connection
+
+`close()` signals the actor to shut down all streams and terminate the actor future:
+
+```rust
+mux.close().await?;
+```
+
+To include a reason code on stream ID 0 before closing, use `close_with_reason`:
+
+```rust
+use wisp_mux::packet::CloseReason;
+
+mux.close_with_reason(CloseReason::Unknown).await?;
+```
+
+## Error handling
+
+The most common `WispError` variants you will encounter when using `ClientMux`:
+
+| Variant | When it occurs |
+|---|---|
+| `WsImplSocketClosed` | The underlying WebSocket was closed before the multiplexor shut down. |
+| `WsImplError(e)` | A transport-level I/O error wrapped from the WebSocket backend. |
+| `MuxTaskEnded` | `new_stream` was called after the actor future had already completed. |
+| `MuxMessageFailedToSend` / `MuxMessageFailedToRecv` | Internal channel between the caller and the actor broke — usually because the actor panicked or was dropped. |
+| `MaxStreamCountReached` | More than 2³²-1 concurrent streams were requested on one connection. |
+| `StreamAlreadyClosed` | A write or close was attempted on a stream that already received a CLOSE packet. |
+| `ExtensionsNotSupported(ids)` | `with_required_extensions` found that the listed extension IDs were absent on the server. |
+| `IncompatibleProtocolVersion(found, needed)` | The server sent an INFO packet with a version the client cannot use. |
+| `PasswordExtensionCredsInvalid` | The server rejected the supplied username/password during v2 handshake. |
+| `CertAuthExtensionSigInvalid` | Certificate authentication failed — the server rejected the Ed25519 signature. |

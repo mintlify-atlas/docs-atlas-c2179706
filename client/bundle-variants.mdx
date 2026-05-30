@@ -1,0 +1,125 @@
+---
+title: "Epoxy TLS bundle variants: full vs minimal"
+sidebarTitle: "Bundle Variants"
+description: "Compare the full and minimal Epoxy TLS WASM builds and their bundled vs separate-WASM sub-variants to choose the right import for your project."
+---
+
+Epoxy TLS ships four bundle variants via the `@mercuryworkshop/epoxy-tls` npm package. The variants differ across two axes: **feature set** (full vs minimal) and **WASM delivery** (bundled vs separate). Pick the combination that balances bundle size, hosting requirements, and the features your application needs.
+
+## Full vs minimal
+
+<CardGroup cols={2}>
+  <Card title="Full build" icon="circle-check">
+    - HTTP/1.1 **and** HTTP/2
+    - gzip **and** brotli response decompression
+    - `connect_websocket()` method available
+    - PEM certificate file support (`options.pem_files`)
+    - Larger WASM binary
+  </Card>
+  <Card title="Minimal build" icon="minimize">
+    - HTTP/1.1 **only**
+    - Identity encoding only (no decompression)
+    - `connect_websocket()` **not** available
+    - No PEM certificate file support
+    - Smaller WASM binary — faster initial load
+  </Card>
+</CardGroup>
+
+Both builds include `EpoxyClient.fetch()`, `connect_tcp()`, `connect_tls()`, and `connect_udp()`. The minimal build is a good fit for use cases that only need proxied HTTP/1.1 fetch and raw byte streams.
+
+## Bundled vs separate WASM
+
+Each build comes in two sub-variants that control how the WASM binary is delivered:
+
+| Sub-variant | WASM delivery | `init()` call |
+|---|---|---|
+| **Bundled** | Inlined as base64 inside the JS file | `await init()` — no argument needed |
+| **Separate** | Loaded from a standalone `.wasm` file | `await init({ module_or_path: "path/to/epoxy.wasm" })` |
+
+The bundled variant is simpler to set up because everything is self-contained in a single JS file. The separate-WASM variant produces a smaller JS file and lets you serve the `.wasm` file from a CDN with long-lived caching headers so returning users pay zero re-download cost.
+
+## Import paths
+
+```javascript
+// Full build — WASM bundled as base64 (default import, simplest setup)
+import init, { EpoxyClient } from "@mercuryworkshop/epoxy-tls";
+
+// Full build — WASM loaded separately
+import init, { EpoxyClient } from "@mercuryworkshop/epoxy-tls/epoxy";
+
+// Minimal build — WASM bundled as base64
+import init, { EpoxyClient } from "@mercuryworkshop/epoxy-tls/minimal-epoxy-bundled";
+
+// Minimal build — WASM loaded separately
+import init, { EpoxyClient } from "@mercuryworkshop/epoxy-tls/minimal-epoxy";
+```
+
+<Tip>
+  The bare package import (`"@mercuryworkshop/epoxy-tls"`) and the explicit `"@mercuryworkshop/epoxy-tls/epoxy-bundled"` path both resolve to the full bundled build. This is the default and requires no arguments to `init()`.
+</Tip>
+
+## Initializing each variant
+
+<Tabs>
+  <Tab title="Bundled (any build)">
+    The WASM binary is already encoded in the JS file. Call `init()` with no arguments.
+
+    ```javascript
+    import init, { EpoxyClient, EpoxyClientOptions } from "@mercuryworkshop/epoxy-tls";
+    // or: "@mercuryworkshop/epoxy-tls/epoxy-bundled"
+    // or: "@mercuryworkshop/epoxy-tls/minimal-epoxy-bundled"
+
+    await init(); // no path required
+
+    const options = new EpoxyClientOptions();
+    options.user_agent = navigator.userAgent;
+    options.wisp_v2 = true;
+
+    const client = new EpoxyClient("wss://wisp.mercurywork.shop", options);
+    ```
+  </Tab>
+  <Tab title="Separate WASM (full build)">
+    Host `epoxy.wasm` from the `full/` directory of the package and pass its URL to `init()`.
+
+    ```javascript
+    import init, { EpoxyClient, EpoxyClientOptions } from "@mercuryworkshop/epoxy-tls/epoxy";
+
+    await init({ module_or_path: "/assets/epoxy.wasm" });
+
+    const options = new EpoxyClientOptions();
+    options.user_agent = navigator.userAgent;
+    options.wisp_v2 = true;
+
+    const client = new EpoxyClient("wss://wisp.mercurywork.shop", options);
+    ```
+  </Tab>
+  <Tab title="Separate WASM (minimal build)">
+    Host `epoxy.wasm` from the `minimal/` directory of the package and pass its URL to `init()`.
+
+    ```javascript
+    import init, { EpoxyClient, EpoxyClientOptions } from "@mercuryworkshop/epoxy-tls/minimal-epoxy";
+
+    await init({ module_or_path: "/assets/epoxy-minimal.wasm" });
+
+    const options = new EpoxyClientOptions();
+    options.user_agent = navigator.userAgent;
+    options.wisp_v2 = true;
+
+    const client = new EpoxyClient("wss://wisp.mercurywork.shop", options);
+    ```
+  </Tab>
+</Tabs>
+
+## When to use each variant
+
+<Steps>
+  <Step title="Start with the full bundled build">
+    If you are prototyping or want the simplest possible setup, use the default import. Everything is in one file and `init()` needs no arguments. You get HTTP/2, decompression, and WebSocket connect out of the box.
+  </Step>
+  <Step title="Switch to separate WASM for production">
+    Once you are ready to optimize, switch to the non-bundled variant. Serve the `.wasm` file with a long `Cache-Control` header (e.g. `immutable, max-age=31536000`). The WASM binary is cached independently of your JS bundle, so deployments that do not change the Epoxy version cost users nothing.
+  </Step>
+  <Step title="Choose minimal if you do not need HTTP/2 or WebSocket connect">
+    If your application only uses `fetch()` for simple HTTP/1.1 requests or raw TCP/TLS/UDP streams, the minimal build shaves meaningful bytes off the initial load without sacrificing any functionality you actually use.
+  </Step>
+</Steps>

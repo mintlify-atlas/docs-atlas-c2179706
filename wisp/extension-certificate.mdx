@@ -1,0 +1,215 @@
+---
+title: "Certificate authentication extension for wisp-mux"
+sidebarTitle: "Certificate Auth"
+description: "Authenticate Wisp v2 connections with ed25519 signing keys using the certificate authentication protocol extension (ID 0x03) in wisp-mux."
+---
+
+The certificate authentication extension provides cryptographic client authentication during the Wisp v2 handshake. The server sends a 64-byte random challenge; the client signs it with its ed25519 private key and returns the signature along with the SHA-256 hash of its public key. The server verifies the signature against its list of trusted public keys and rejects the connection if verification fails.
+
+## Extension details
+
+| Field | Value |
+|-------|-------|
+| Extension ID | `0x03` |
+| Extension struct | `CertAuthProtocolExtension` |
+| Builder struct | `CertAuthProtocolExtensionBuilder` |
+| Feature gate | `certificate` (enabled by default) |
+| Key algorithm | ed25519 |
+
+## Feature requirement
+
+The certificate extension is compiled only when the `certificate` feature is active. It is included in the default feature set, so no change to `Cargo.toml` is needed unless you have disabled default features.
+
+```toml
+# default features — certificate is included automatically
+[dependencies]
+wisp-mux = "6"
+
+# explicitly enabling the feature when default-features = false
+[dependencies]
+wisp-mux = { version = "6", default-features = false, features = ["certificate"] }
+```
+
+<Note>
+  The `certificate` feature depends on `ed25519`, `getrandom`, and `bitflags`. On WASM targets you also need the `wasm` feature so that `getrandom` can obtain entropy from the browser.
+</Note>
+
+## Key types
+
+### `SigningKey` (client)
+
+Wraps an `Arc<dyn Signer<Signature>>` and the SHA-256 hash of the corresponding public key.
+
+```rust
+pub struct SigningKey {
+    pub cert_type: SupportedCertificateTypes,
+    pub hash: [u8; 32],           // SHA-256 of the public key bytes
+    pub signer: Arc<dyn Signer<Signature> + Sync + Send>,
+}
+```
+
+Create one with `SigningKey::new_ed25519(signer, hash)`.
+
+### `VerifyKey` (server)
+
+Wraps an `Arc<dyn Verifier<Signature>>` and the SHA-256 hash of the public key it can verify.
+
+```rust
+pub struct VerifyKey {
+    pub cert_type: SupportedCertificateTypes,
+    pub hash: [u8; 32],           // SHA-256 of the public key bytes
+    pub verifier: Arc<dyn Verifier<Signature> + Sync + Send>,
+}
+```
+
+Create one with `VerifyKey::new_ed25519(verifier, hash)`.
+
+## Loading a key from a PKCS\#8 PEM file
+
+The `ed25519-dalek` crate provides `DecodePrivateKey` for loading PKCS#8 PEM files. The SHA-256 hash is computed over the raw 32-byte public key.
+
+```rust
+use std::sync::Arc;
+use ed25519_dalek::pkcs8::DecodePrivateKey;
+use sha2::{Digest, Sha256};
+use wisp_mux::extensions::cert::SigningKey;
+
+async fn load_signing_key(path: &std::path::Path) -> Result<SigningKey, Box<dyn std::error::Error + Sync + Send>> {
+    let pem_data = tokio::fs::read_to_string(path).await?;
+    let signer = ed25519_dalek::SigningKey::from_pkcs8_pem(&pem_data)?;
+
+    // Compute SHA-256 of the 32-byte compressed public key
+    let binary_key = signer.verifying_key().to_bytes();
+    let mut hasher = Sha256::new();
+    hasher.update(binary_key);
+    let hash: [u8; 32] = hasher.finalize().into();
+
+    Ok(SigningKey::new_ed25519(Arc::new(signer), hash))
+}
+```
+
+This is exactly the pattern used in `simple-wisp-client`'s `get_cert` function.
+
+## Client setup
+
+<Steps>
+  <Step title="Load the signing key">
+    Read the PKCS#8 PEM file and compute the public-key hash as shown above.
+
+    ```rust
+    let signing_key = load_signing_key(&path).await?;
+    ```
+  </Step>
+
+  <Step title="Create the builder and add it to extensions">
+    Pass `Some(signing_key)` to opt into signing, or `None` if the server marks the extension as optional and you have no key.
+
+    ```rust
+    use wisp_mux::extensions::{
+        cert::{CertAuthProtocolExtension, CertAuthProtocolExtensionBuilder},
+        AnyProtocolExtensionBuilder,
+    };
+
+    let extensions: Vec<AnyProtocolExtensionBuilder> = vec![
+        AnyProtocolExtensionBuilder::new(
+            CertAuthProtocolExtensionBuilder::new_client(Some(signing_key)),
+        ),
+    ];
+    ```
+  </Step>
+
+  <Step title="Connect and enforce the extension">
+    ```rust
+    use wisp_mux::{ClientMux, WispV2Handshake};
+
+    let (mux, fut) = ClientMux::new(rx, tx, Some(WispV2Handshake::new(extensions)))
+        .await?
+        .with_required_extensions(&[CertAuthProtocolExtension::ID])
+        .await?;
+    ```
+  </Step>
+</Steps>
+
+## Server setup
+
+The server holds a list of `VerifyKey` values — one per trusted client public key. When a client connects, the server verifies the signature against all keys whose `hash` matches the one the client advertised.
+
+<ParamField body="verifiers" type="Vec<VerifyKey>" required>
+  Collection of trusted client verification keys. The server accepts the client if any key in this list successfully verifies the challenge signature.
+</ParamField>
+
+<ParamField body="required" type="bool" required>
+  When `true`, clients that do not present a key are rejected with `CertAuthExtensionNoKey`. When `false`, unauthenticated clients proceed if the server decides to permit them.
+</ParamField>
+
+```rust
+use std::sync::Arc;
+use wisp_mux::extensions::{
+    cert::{CertAuthProtocolExtensionBuilder, VerifyKey},
+    AnyProtocolExtensionBuilder,
+};
+
+// Load the client's ed25519 public key and its SHA-256 hash
+let verifying_key: Arc<ed25519_dalek::VerifyingKey> = Arc::new(/* load from PEM */);
+let hash: [u8; 32] = /* SHA-256 of verifying_key.to_bytes() */;
+
+let trusted_keys = vec![VerifyKey::new_ed25519(verifying_key, hash)];
+
+let extensions: Vec<AnyProtocolExtensionBuilder> = vec![
+    AnyProtocolExtensionBuilder::new(
+        CertAuthProtocolExtensionBuilder::new_server(trusted_keys, true),
+    ),
+];
+```
+
+## Error handling
+
+| Error variant | When it occurs |
+|---------------|----------------|
+| `WispError::CertAuthExtensionSigInvalid` | The client's signature did not verify against any trusted key |
+| `WispError::CertAuthExtensionCertTypeInvalid` | The client advertised an unsupported certificate type bit flag |
+| `WispError::CertAuthExtensionNoKey` | The client builder has `required: true` but was created with `None` (no signing key) |
+
+## Full example (client)
+
+```rust
+use std::{path::PathBuf, sync::Arc};
+use ed25519_dalek::pkcs8::DecodePrivateKey;
+use sha2::{Digest, Sha256};
+use wisp_mux::{
+    extensions::{
+        cert::{CertAuthProtocolExtension, CertAuthProtocolExtensionBuilder, SigningKey},
+        AnyProtocolExtensionBuilder,
+    },
+    ClientMux, WispV2Handshake,
+};
+
+async fn get_cert(path: PathBuf) -> Result<SigningKey, Box<dyn std::error::Error + Sync + Send>> {
+    let data = tokio::fs::read_to_string(path).await?;
+    let signer = ed25519_dalek::SigningKey::from_pkcs8_pem(&data)?;
+    let binary_key = signer.verifying_key().to_bytes();
+
+    let mut hasher = Sha256::new();
+    hasher.update(binary_key);
+    let hash: [u8; 32] = hasher.finalize().into();
+
+    Ok(SigningKey::new_ed25519(Arc::new(signer), hash))
+}
+
+// In your connection function:
+let key = get_cert(PathBuf::from("client.pem")).await?;
+let extension = CertAuthProtocolExtensionBuilder::new_client(Some(key));
+
+let extensions: Vec<AnyProtocolExtensionBuilder> = vec![
+    AnyProtocolExtensionBuilder::new(extension),
+];
+
+let (mux, fut) = ClientMux::new(rx, tx, Some(WispV2Handshake::new(extensions)))
+    .await?
+    .with_required_extensions(&[CertAuthProtocolExtension::ID])
+    .await?;
+```
+
+<Tip>
+  You can change the signing key at runtime (before the handshake begins) using `CertAuthProtocolExtensionBuilder::set_signing_key(key)`. This is useful when keys are rotated or loaded lazily.
+</Tip>

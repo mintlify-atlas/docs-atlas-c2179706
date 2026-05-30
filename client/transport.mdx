@@ -1,0 +1,107 @@
+---
+title: "Custom Wisp transport for EpoxyClient"
+sidebarTitle: "Transport"
+description: "EpoxyWispTransport lets you pass either a WebSocket URL string or a custom async function that returns a read/write stream pair, enabling non-standard Wisp backends and auth headers."
+---
+
+The first argument to the `EpoxyClient` constructor is the **Wisp transport**. It tells the client how to open the raw byte channel that carries the Wisp multiplexed traffic. Two forms are accepted: a plain WebSocket URL string, or a factory function that returns a stream pair. The factory form lets you plug in any transport backend — for example, a `WebSocketStream` with custom headers, a worker-based relay, or a non-WebSocket channel.
+
+## Type Definition
+
+```typescript
+type EpoxyWispTransportResult = {
+  read:  ReadableStream<ArrayBuffer>;
+  write: WritableStream<Uint8Array>;
+};
+
+type EpoxyWispTransport =
+  | string
+  | ((wisp_v2: boolean) => Promise<EpoxyWispTransportResult> | EpoxyWispTransportResult);
+```
+
+- **`read`** must yield `ArrayBuffer` chunks (not `Uint8Array`).
+- **`write`** must accept `Uint8Array` chunks.
+
+---
+
+## URL String Transport
+
+The simplest form: pass a `ws://` or `wss://` URL string. Epoxy internally opens a browser `WebSocket` to that URL and uses it as the Wisp channel. If `wisp_v2` is enabled in `EpoxyClientOptions`, a negotiation sub-protocol token is appended automatically.
+
+```js
+import init, { EpoxyClient, EpoxyClientOptions }
+  from "@mercuryworkshop/epoxy-tls/epoxy-bundled";
+
+await init();
+
+const options = new EpoxyClientOptions();
+options.user_agent = navigator.userAgent;
+options.wisp_v2 = true;
+
+// Pass the Wisp server URL directly as a string
+const client = new EpoxyClient("wss://wisp.mercurywork.shop", options);
+await client.replace_stream_provider();
+
+const res = await client.fetch("https://example.com");
+console.log(await res.text());
+```
+
+The URL must begin with `ws://` or `wss://`. Passing an `http://` or `https://` URL will throw an `EpoxyError` with `InvalidUrlScheme`.
+
+---
+
+## Function Transport
+
+Pass a factory function when you need more control over how the channel is opened. The function is called by Epoxy each time it needs to (re-)connect to the Wisp server — including after `replace_stream_provider()` is called. It receives one boolean argument and must return (or resolve to) an `EpoxyWispTransportResult`.
+
+<ParamField path="wisp_v2" type="boolean">
+  Passed to your factory function by Epoxy. `true` when the client is configured with `options.wisp_v2 = true`. You can use this to conditionally include a Wisp v2 negotiation sub-protocol, or simply ignore it if your transport handles versioning separately.
+</ParamField>
+
+### WebSocketStream example
+
+The [WebSocketStream API](https://developer.mozilla.org/en-US/docs/Web/API/WebSocketStream) (available in recent Chromium-based browsers) exposes `ReadableStream` and `WritableStream` directly and supports custom request headers — something the classic `WebSocket` API does not. This makes it ideal as a custom Epoxy transport when you need to authenticate the Wisp connection.
+
+```js
+import init, { EpoxyClient, EpoxyClientOptions }
+  from "@mercuryworkshop/epoxy-tls/epoxy-bundled";
+
+await init();
+
+const options = new EpoxyClientOptions();
+options.user_agent = navigator.userAgent;
+options.wisp_v2 = true;
+
+const wispUrl = "wss://wisp.mercurywork.shop";
+
+// Factory function — called each time Epoxy needs a fresh channel
+const client = new EpoxyClient(async (wisp_v2) => {
+  // wisp_v2 is true when options.wisp_v2 is enabled
+  const wss = new WebSocketStream(wispUrl);
+  const { readable, writable } = await wss.opened;
+
+  // readable  → ReadableStream<ArrayBuffer>  ✓
+  // writable  → WritableStream<Uint8Array>   ✓
+  return { read: readable, write: writable };
+}, options);
+
+await client.replace_stream_provider();
+
+const res = await client.fetch("https://example.com");
+console.log(await res.text());
+```
+
+---
+
+## When to Use a Custom Transport
+
+Use the function form instead of a URL string when you need to:
+
+- **Add authentication or custom request headers** to the Wisp WebSocket upgrade request (e.g., `Authorization`, API keys). The classic `WebSocket` constructor does not support this; `WebSocketStream` does.
+- **Use a non-WebSocket channel** as the Wisp transport — for example, a `MessageChannel` bridged to a Service Worker, a WebTransport session, or any other pair of `ReadableStream`/`WritableStream`.
+- **Perform async setup** before the channel is ready (e.g., fetching a token, resolving a server address, or waiting for another resource).
+- **React to reconnections**: because Epoxy calls your factory function fresh on every `replace_stream_provider()`, you can rotate credentials or pick a different server endpoint on each reconnect.
+
+<Note>
+  The factory function is called with `wisp_v2: boolean` so that you can conditionally pass a Wisp v2 sub-protocol to `WebSocketStream` or another transport that cares about protocol negotiation. If your transport does not need this information, you can safely ignore the argument.
+</Note>

@@ -1,0 +1,133 @@
+---
+title: "Wisp protocol extensions in wisp-mux"
+sidebarTitle: "Extensions"
+description: "wisp-mux supports Wisp v2 protocol extensions for UDP streams, password auth, certificate auth, and server MOTD. Register builders at handshake time and query the negotiated set afterward."
+---
+
+Protocol extensions are optional capabilities that both sides negotiate during the Wisp v2 handshake. Each extension is identified by a single-byte ID and is registered before the connection is established via `WispV2Handshake`. After the mux is created, you can query the negotiated extensions to confirm which ones the server accepted and to read any data they produced (such as the MOTD string).
+
+## Available extensions
+
+| ID | Name | Purpose |
+|----|------|---------|
+| `0x01` | UDP | Enables `StreamType::Udp` streams alongside the default TCP streams |
+| `0x02` | Password Auth | Authenticates the client with a username and password during handshake |
+| `0x03` | Certificate Auth | Authenticates the client with an ed25519 signing key during handshake |
+| `0x04` | MOTD | Delivers a server message-of-the-day string to the client at handshake |
+
+## How extensions work in wisp-mux
+
+### Wisp v2 requirement
+
+Extensions are part of the Wisp v2 handshake specification. They are only active when both sides negotiate Wisp v2. If the server does not support Wisp v2 the connection is downgraded, no extension handshake takes place, and `mux.was_downgraded()` returns `true`.
+
+### Registering extensions
+
+Pass a `WispV2Handshake` to `ClientMux::new` (or the server-side equivalent) containing a `Vec<AnyProtocolExtensionBuilder>` with one builder per extension you want to activate.
+
+```rust
+use wisp_mux::{
+    extensions::{
+        udp::UdpProtocolExtensionBuilder,
+        motd::MotdProtocolExtensionBuilder,
+        AnyProtocolExtensionBuilder,
+    },
+    ClientMux, WispV2Handshake,
+};
+
+let extensions: Vec<AnyProtocolExtensionBuilder> = vec![
+    AnyProtocolExtensionBuilder::new(UdpProtocolExtensionBuilder),
+    AnyProtocolExtensionBuilder::new(MotdProtocolExtensionBuilder::Client),
+];
+
+let (mux, fut) = ClientMux::new(rx, tx, Some(WispV2Handshake::new(extensions)))
+    .await?
+    .with_required_extensions(&[0x01]) // require UDP
+    .await?;
+```
+
+### Requiring extensions
+
+After creating the mux, call `with_required_extensions(&[id1, id2, …])` to assert that the server accepted every listed extension ID. The call returns an error if any required extension is absent, preventing you from opening streams that rely on a missing capability.
+
+Use `with_no_required_extensions()` when you do not need to enforce any extension.
+
+```rust
+// Require both password auth and UDP
+let (mux, fut) = ClientMux::new(rx, tx, Some(WispV2Handshake::new(extensions)))
+    .await?
+    .with_required_extensions(&[
+        UdpProtocolExtension::ID,      // 0x01
+        PasswordProtocolExtension::ID, // 0x02
+    ])
+    .await?;
+```
+
+### Querying negotiated extensions
+
+`mux.get_extensions()` returns a slice of `AnyProtocolExtension` values representing every extension that was successfully negotiated. Use the `ProtocolExtensionListExt` trait to search that slice.
+
+```rust
+use wisp_mux::extensions::{
+    ProtocolExtensionListExt,
+    motd::MotdProtocolExtension,
+};
+
+if let Some(motd) = mux.get_extensions().find_extension::<MotdProtocolExtension>() {
+    println!("Server MOTD: {}", motd.motd);
+}
+```
+
+## Extension helper traits
+
+### `ProtocolExtensionListExt`
+
+Implemented for `[AnyProtocolExtension]` and `Vec<AnyProtocolExtension>`.
+
+| Method | Description |
+|--------|-------------|
+| `find_extension::<T>()` | Returns `Option<&T>` — the first extension of type `T` |
+| `find_extension_mut::<T>()` | Returns `Option<&mut T>` — mutable access to the first extension of type `T` |
+
+### `ProtocolExtensionVecExt`
+
+Implemented for `Vec<AnyProtocolExtension>`.
+
+| Method | Description |
+|--------|-------------|
+| `remove_extension::<T>()` | Removes all instances of extension type `T` from the vector |
+
+### `ProtocolExtensionBuilderListExt` / `ProtocolExtensionBuilderVecExt`
+
+Identical helpers exist for `Vec<AnyProtocolExtensionBuilder>`, allowing you to inspect or modify your builder list before passing it to `WispV2Handshake::new`.
+
+```rust
+use wisp_mux::extensions::{
+    ProtocolExtensionBuilderListExt,
+    ProtocolExtensionBuilderVecExt,
+    udp::UdpProtocolExtensionBuilder,
+};
+
+// Check that a UDP builder was registered
+let has_udp = builders.find_extension::<UdpProtocolExtensionBuilder>().is_some();
+
+// Remove the UDP builder at runtime
+builders.remove_extension::<UdpProtocolExtensionBuilder>();
+```
+
+## Per-extension pages
+
+<CardGroup cols={2}>
+  <Card title="UDP Extension" icon="network-wired" href="/wisp/extension-udp">
+    Enable UDP streams alongside TCP in a Wisp v2 connection.
+  </Card>
+  <Card title="Password Auth" icon="lock" href="/wisp/extension-password">
+    Authenticate clients with a username and password during handshake.
+  </Card>
+  <Card title="Certificate Auth" icon="certificate" href="/wisp/extension-certificate">
+    Authenticate clients with ed25519 signing keys during handshake.
+  </Card>
+  <Card title="MOTD Extension" icon="message" href="/wisp/extension-motd">
+    Deliver a server message-of-the-day string to the client at handshake.
+  </Card>
+</CardGroup>
