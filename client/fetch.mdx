@@ -1,7 +1,7 @@
 ---
-title: "Making HTTP requests with EpoxyClient.fetch()"
+title: "Making HTTP requests with the EpoxyClient fetch() API"
 sidebarTitle: "Fetch"
-description: "Send HTTP requests through a Wisp proxy using EpoxyClient.fetch(), a drop-in replacement for the browser Fetch API with redirect control and raw header access."
+description: "Send HTTP requests through a Wisp proxy using EpoxyClient.fetch(), a Fetch API replacement with redirect control and raw header access."
 ---
 
 `EpoxyClient.fetch()` lets you make HTTP requests through a Wisp proxy directly from the browser. Its options object mirrors the standard `fetch()` API, so you can swap it in with minimal changes to existing code. The method returns a standard `Response` object extended with a few extra properties that expose proxy-specific information.

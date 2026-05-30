@@ -11,8 +11,8 @@ The certificate authentication extension provides cryptographic client authentic
 | Field | Value |
 |-------|-------|
 | Extension ID | `0x03` |
-| Extension struct | `CertAuthProtocolExtension` |
-| Builder struct | `CertAuthProtocolExtensionBuilder` |
+| Extension enum | `CertAuthProtocolExtension` |
+| Builder enum | `CertAuthProtocolExtensionBuilder` |
 | Feature gate | `certificate` (enabled by default) |
 | Key algorithm | ed25519 |
 
@@ -168,7 +168,7 @@ let extensions: Vec<AnyProtocolExtensionBuilder> = vec![
 |---------------|----------------|
 | `WispError::CertAuthExtensionSigInvalid` | The client's signature did not verify against any trusted key |
 | `WispError::CertAuthExtensionCertTypeInvalid` | The client advertised an unsupported certificate type bit flag |
-| `WispError::CertAuthExtensionNoKey` | The client builder has `required: true` but was created with `None` (no signing key) |
+| `WispError::CertAuthExtensionNoKey` | The client builder was created with `None` (no signing key) but the handshake attempted to produce a signature |
 
 ## Full example (client)
 

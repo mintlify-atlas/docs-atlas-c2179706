@@ -22,7 +22,7 @@ Use the standard Web Streams `getReader()` and `getWriter()` accessors to intera
 
 ## URL Format
 
-All three `connect_*` methods accept the target address as a `"host:port"` string (or a `URL` object). For example:
+All three `connect_*` methods accept the target address as a `"host:port"` authority-form string (or a `URL` object). For example:
 
 ```
 "example.com:443"
@@ -30,7 +30,7 @@ All three `connect_*` methods accept the target address as a `"host:port"` strin
 "[::1]:8080"
 ```
 
-The scheme part of a URL input is ignored; only the host and port are used to open the Wisp stream.
+A port number is always required. You may also pass a full URI string such as `"tcp://example.com:80"` or a Web API `URL` object — in both cases the host and port are extracted from the parsed URI. The `"host:port"` authority form (no scheme) is the simplest and most common usage, matching the demo and README examples.
 
 ---
 

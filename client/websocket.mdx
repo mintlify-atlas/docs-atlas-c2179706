@@ -1,5 +1,5 @@
 ---
-title: "Proxying WebSocket connections with Epoxy TLS"
+title: "Proxying WebSocket connections through an Epoxy TLS proxy"
 sidebarTitle: "WebSocket"
 description: "Open full-duplex WebSocket connections to any server through a Wisp proxy using EpoxyHandlers and connect_websocket in the Epoxy TLS full build."
 ---
@@ -100,18 +100,15 @@ const ws = await client.connect_websocket(
 
 ## Sending messages
 
-`EpoxyWebSocket.send()` accepts either a text string or binary data.
+`EpoxyWebSocket.send()` accepts either a UTF-8 text string or an `ArrayBuffer`. The type accepted is `string | ArrayBuffer` — pass `TypedArray.buffer` if you have a typed array such as `Uint8Array`.
 
 ```javascript
 // Send a UTF-8 text frame
 await ws.send("hello, server!");
 
-// Send a binary frame from an ArrayBuffer
+// Send a binary frame — must be an ArrayBuffer, not a typed array
 const buf = new TextEncoder().encode("binary payload");
-await ws.send(buf.buffer); // ArrayBuffer
-
-// Send a binary frame from a Uint8Array
-await ws.send(buf);
+await ws.send(buf.buffer); // buf.buffer is an ArrayBuffer
 ```
 
 ## Complete working example

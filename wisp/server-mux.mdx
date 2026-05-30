@@ -39,7 +39,7 @@ pub async fn wait_for_stream(&self) -> Option<(ConnectPacket, MuxStream<W>)>
 - `host: String` — the target hostname or IP the client wants to reach
 - `port: u16` — the target port
 
-`MuxStream<W>` is the bidirectional stream handle. It implements `Stream<Item = Result<Payload, WispError>>` for reading and `Sink<Payload>` for writing. It can also be split into independent halves or converted to `AsyncRead + AsyncWrite`.
+`MuxStream<W>` is the bidirectional stream handle. It implements `Stream<Item = Result<Payload, WispError>>` for reading and `Sink<Payload>` for writing. It can also be split into independent halves or converted to a `futures::AsyncRead + AsyncWrite + AsyncBufRead` value via `into_async_rw()`.
 
 ## Minimal TCP-forwarding server
 
@@ -77,7 +77,7 @@ async fn handle_connection(
     tcp: TcpStream,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Upgrade TCP → WebSocket
-    let ws = tokio_websockets::ServerBuilder::new()
+    let (_request, ws) = tokio_websockets::ServerBuilder::new()
         .accept(tcp)
         .await?;
 
@@ -168,7 +168,7 @@ The actor future must be running (spawned or awaited concurrently) before you ca
 // Independent read/write halves (implement Stream and Sink respectively)
 let (read_half, write_half) = stream.into_split();
 
-// A single AsyncRead + AsyncWrite value for use with tokio::io utilities
+// A single futures::AsyncRead + AsyncWrite + AsyncBufRead value
 let async_rw = stream.into_async_rw();
 ```
 

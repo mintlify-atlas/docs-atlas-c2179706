@@ -68,7 +68,7 @@ The top-level config is divided into three sections, each mapped to its own tabl
   | Value | Description |
   |-------|-------------|
   | `"websocket"` | Standard WebSocket upgrade — compatible with all epoxy-client builds (default) |
-  | `"lengthdelimitedl"` | Little-endian `u32` length-delimited codec (see [tokio-util](https://docs.rs/tokio-util/latest/tokio_util/codec/length_delimited/index.html)) — lower overhead, not WebSocket |
+  | `"lengthdelimitedle"` | Little-endian `u32` length-delimited codec (see [tokio-util](https://docs.rs/tokio-util/latest/tokio_util/codec/length_delimited/index.html)) — lower overhead, not WebSocket |
 
   Most deployments should use `"websocket"`. The length-delimited transport is intended for non-browser environments where WebSocket framing overhead matters.
 </ParamField>
@@ -148,9 +148,10 @@ The top-level config is divided into three sections, each mapped to its own tabl
   |-------|-------------|
   | `"singlethread"` | Single-threaded runtime — lowest overhead, no parallelism |
   | `"multithread"` | Work-stealing multi-threaded runtime (default) — best general-purpose choice |
+  | `"multithreadalt"` | Alternate multi-threaded runtime — only available when the server is compiled with `RUSTFLAGS="--cfg tokio_unstable"` |
   | `"threadpercore"` | Spawns one single-threaded runtime per logical CPU core — highest throughput on CPU-bound workloads |
 
-  `"multithread"` is the right choice for the vast majority of deployments. Switch to `"threadpercore"` only after profiling shows CPU saturation with `"multithread"`.
+  `"multithread"` is the right choice for the vast majority of deployments. Switch to `"threadpercore"` only after profiling shows CPU saturation with `"multithread"`. The `"multithreadalt"` variant requires an unstable Tokio build flag and is not available in standard release binaries.
 </ParamField>
 
 ## Complete example

@@ -24,6 +24,14 @@ The `[stream]` section of the epoxy-server configuration file governs what each 
   Allow UDP connections over the legacy wsproxy protocol. This is a nonstandard extension to wsproxy and is disabled by default. Only enable this if you have wsproxy clients that require UDP.
 </ParamField>
 
+<ParamField path="allow_twisp" type="boolean" default="false">
+  Allow clients to open TWisp streams. TWisp is an experimental stream type that is disabled by default.
+
+  <Note>
+    This field is only present when epoxy-server is compiled with the `twisp` feature flag. It has no effect in standard release builds that omit this feature.
+  </Note>
+</ParamField>
+
 <ParamField path="dns_servers" type="string[]" default="[]">
   List of DNS server IP addresses used to resolve hostnames for upstream connections. When empty (the default), the system resolver configuration is used (typically `/etc/resolv.conf` on Linux).
 
@@ -187,22 +195,6 @@ allow_ports = [[80, 80], [443, 443]]
 | `allow_non_global` | `true` | RFC 1918 private ranges and link-local |
 
 These flags are checked against the resolved IP address of each upstream connection, after DNS resolution. A connection is rejected if any of the applicable category flags is `false`.
-
----
-
-## UDP settings
-
-<ParamField path="allow_udp" type="boolean" default="true">
-  Master switch for Wisp UDP streams. Set to `false` to disable UDP entirely.
-</ParamField>
-
-<ParamField path="allow_wsproxy_udp" type="boolean" default="false">
-  Enable UDP for the legacy wsproxy protocol (nonstandard extension, disabled by default).
-</ParamField>
-
-<ParamField path="dns_servers" type="string[]" default="[]">
-  Override the system DNS resolver with specific nameserver addresses. Empty means use the system default.
-</ParamField>
 
 ---
 

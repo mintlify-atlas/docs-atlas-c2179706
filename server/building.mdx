@@ -27,7 +27,7 @@ cargo build -r
 
 The compiled binary is placed at:
 
-```
+```text
 target/release/epoxy-server
 ```
 
@@ -61,7 +61,7 @@ To build with YAML support and rate limiting enabled:
 cargo build -r -p epoxy-server --features yaml,speed-limit
 ```
 
-To build with every optional feature:
+To build with all production-relevant optional features:
 
 ```bash
 cargo build -r -p epoxy-server --features yaml,speed-limit,twisp

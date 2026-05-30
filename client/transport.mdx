@@ -16,11 +16,15 @@ type EpoxyWispTransportResult = {
 
 type EpoxyWispTransport =
   | string
-  | ((wisp_v2: boolean) => Promise<EpoxyWispTransportResult> | EpoxyWispTransportResult);
+  | (() => Promise<EpoxyWispTransportResult> | EpoxyWispTransportResult);
 ```
 
 - **`read`** must yield `ArrayBuffer` chunks (not `Uint8Array`).
 - **`write`** must accept `Uint8Array` chunks.
+
+<Note>
+  Although the generated TypeScript type declares the factory function with no parameters, Epoxy calls it at runtime with one argument: a `boolean` indicating whether Wisp v2 is requested (`true` when `options.wisp_v2 = true`). You can optionally accept this argument to pass a Wisp v2 negotiation sub-protocol to your transport. If you do not need it, simply ignore it — JavaScript functions can be called with extra arguments without error.
+</Note>
 
 ---
 

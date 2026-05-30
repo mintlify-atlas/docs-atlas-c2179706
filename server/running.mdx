@@ -4,7 +4,7 @@ sidebarTitle: "Running"
 description: "Start epoxy-server by generating a default config file, customising it, and passing it as an argument. Includes systemd unit and reverse-proxy guidance."
 ---
 
-Once you have a compiled `epoxy-server` binary (see [Building](/server/building)), getting the server running takes only a few steps: generate a default configuration file, edit it to suit your environment, and launch the binary. epoxy-server reads its entire runtime configuration from a single TOML, JSON, or YAML file — there are no environment-variable knobs or flags beyond the ones documented below.
+Once you have a compiled `epoxy-server` binary (see [Building](/server/building)), getting the server running takes only a few steps: generate a default configuration file, edit it to suit your environment, and launch the binary. epoxy-server reads its runtime configuration from a single TOML, JSON, or YAML file. The log level can also be overridden at runtime with the standard `RUST_LOG` environment variable (e.g. `RUST_LOG=debug epoxy-server config.toml`).
 
 ## Quick start
 
@@ -16,11 +16,16 @@ Once you have a compiled `epoxy-server` binary (see [Building](/server/building)
     epoxy-server --default-config > config.toml
     ```
 
-    The file is written in TOML by default. To generate JSON or YAML instead, pass `--format` before `--default-config`:
+    The file is written in TOML by default. To generate JSON instead, pass `--format` before `--default-config`:
 
     ```bash
-    epoxy-server --format json  --default-config > config.json
-    epoxy-server --format yaml  --default-config > config.yaml
+    epoxy-server --format json --default-config > config.json
+    ```
+
+    YAML output is also supported if epoxy-server was compiled with the `yaml` feature:
+
+    ```bash
+    epoxy-server --format yaml --default-config > config.yaml
     ```
   </Step>
   <Step title="Edit the configuration file">
@@ -43,7 +48,7 @@ Once you have a compiled `epoxy-server` binary (see [Building](/server/building)
 
     epoxy-server logs to standard output. The first line printed will confirm the address, runtime flavour, and transport:
 
-    ```
+    ```text
     [INFO  epoxy_server] listening on (Tcp, "127.0.0.1:4000") with runtime flavor MultiThread and socket transport WebSocket
     ```
   </Step>
@@ -54,7 +59,7 @@ Once you have a compiled `epoxy-server` binary (see [Building](/server/building)
 | Argument | Short | Description |
 |---|---|---|
 | `<config>` | — | Path to the configuration file (TOML by default). If omitted, built-in defaults are used. |
-| `--format <fmt>` | `-f` | Config file format: `toml` (default), `json`, or `yaml`. Must precede the config path if used together. |
+| `--format <fmt>` | `-f` | Config file format: `json` (always available), `toml` (requires the `toml` feature, enabled by default), or `yaml` (requires the `yaml` feature). When the `toml` feature is compiled in, `toml` is the default format. Must precede the config path if used together. |
 | `--default-config` | — | Print the default configuration in the selected format and exit immediately. |
 
 <Tip>

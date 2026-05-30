@@ -63,6 +63,32 @@ The `[wisp]` section of the epoxy-server configuration file controls everything 
   Allow legacy [wsproxy](https://github.com/mercuryworkshop/wsproxy) connections in addition to the Wisp protocol. wsproxy is an older, simpler tunneling protocol that predates Wisp. Disable this if you only want to accept Wisp clients and want to reduce attack surface.
 </ParamField>
 
+<ParamField path="read_limit" type="float" default="Infinity">
+  Maximum read throughput in bytes per second applied across **all streams** within a single Wisp connection. When the aggregate incoming data rate exceeds this limit the connection is throttled. The default is `Infinity` (no limit).
+
+  <Note>
+    This field is only available when epoxy-server is compiled with the `speed-limit` feature flag. It has no effect in standard release builds that omit this feature.
+  </Note>
+
+  ```toml
+  # Limit each connection to 10 MB/s read throughput
+  read_limit = 10_000_000.0
+  ```
+</ParamField>
+
+<ParamField path="write_limit" type="float" default="Infinity">
+  Maximum write throughput in bytes per second applied across **all streams** within a single Wisp connection. When the aggregate outgoing data rate exceeds this limit the connection is throttled. The default is `Infinity` (no limit).
+
+  <Note>
+    This field is only available when epoxy-server is compiled with the `speed-limit` feature flag. It has no effect in standard release builds that omit this feature.
+  </Note>
+
+  ```toml
+  # Limit each connection to 10 MB/s write throughput
+  write_limit = 10_000_000.0
+  ```
+</ParamField>
+
 <ParamField path="password_extension_users" type="object" default="{}">
   Map of `username → password` pairs used when `auth_extension = "password"`. Clients must supply a matching username and password during the Wisp v2 handshake to be permitted.
 

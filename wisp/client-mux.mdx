@@ -116,7 +116,7 @@ description: "How to create a ClientMux, open TCP and UDP streams, configure Wis
     }
     ```
 
-    Alternatively, `into_async_rw()` wraps the stream into an `AsyncRead + AsyncWrite` value (`MuxStreamAsyncRW`) for use with Tokio I/O utilities.
+    Alternatively, `into_async_rw()` wraps the stream into a `MuxStreamAsyncRW` that implements `futures::AsyncRead + AsyncWrite + AsyncBufRead`, for use with any code that accepts the `futures` async I/O traits.
   </Step>
 </Steps>
 
@@ -129,13 +129,12 @@ use bytes::Bytes;
 use futures::SinkExt;
 use wisp_mux::{
     extensions::{
-        password::PasswordProtocolExtensionBuilder,
         udp::{UdpProtocolExtension, UdpProtocolExtensionBuilder},
         AnyProtocolExtensionBuilder,
     },
     packet::StreamType,
-    ws::{TokioWebsocketsTransport, TransportExt, TransportWrite},
-    ClientMux, WispError, WispV2Handshake,
+    ws::{TokioWebsocketsTransport, TransportExt},
+    ClientMux, WispV2Handshake,
 };
 
 #[tokio::main]

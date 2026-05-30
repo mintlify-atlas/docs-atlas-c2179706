@@ -97,7 +97,7 @@ await client.connect_tcp(url)
 Opens a raw TCP stream to the given host and port.
 
 <ParamField path="url" type="string | URL" required>
-  Target address in `"host:port"` form, e.g. `"example.com:80"`. The URL scheme is ignored; only the host and port are used.
+  Target address in `"host:port"` authority form, e.g. `"example.com:80"`. Pass a `URL` object or a full URI string such as `"tcp://example.com:80"` if you prefer — the host and port are extracted from either form. A port is required.
 </ParamField>
 
 **Returns:** `Promise<EpoxyIoStream>` — `{ read: ReadableStream<Uint8Array>, write: WritableStream<Uint8Array> }`. See [Streams](/client/streams).
@@ -113,7 +113,7 @@ await client.connect_tls(url)
 Opens a TLS-wrapped TCP stream. The TLS handshake is performed inside the library using Rustls.
 
 <ParamField path="url" type="string | URL" required>
-  Target address in `"host:port"` form, e.g. `"example.com:443"`. The host name is also used as the TLS Server Name Indication (SNI) value.
+  Target address in `"host:port"` authority form, e.g. `"example.com:443"`. The host name is also used as the TLS Server Name Indication (SNI) value. A port is required.
 </ParamField>
 
 **Returns:** `Promise<EpoxyIoStream>` — `{ read: ReadableStream<Uint8Array>, write: WritableStream<Uint8Array> }`. See [Streams](/client/streams).
@@ -129,7 +129,7 @@ await client.connect_udp(url)
 Opens a UDP datagram stream. Each `write` call sends one datagram; each `read` yields one datagram.
 
 <ParamField path="url" type="string | URL" required>
-  Target address in `"host:port"` form, e.g. `"127.0.0.1:5000"`.
+  Target address in `"host:port"` authority form, e.g. `"127.0.0.1:5000"`. A port is required.
 </ParamField>
 
 **Returns:** `Promise<EpoxyIoStream>` — `{ read: ReadableStream<Uint8Array>, write: WritableStream<Uint8Array> }`. See [Streams](/client/streams).

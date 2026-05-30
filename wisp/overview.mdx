@@ -41,7 +41,7 @@ The `certificate` feature is enabled by default and adds Ed25519-based certifica
 | `wasm` | Configures `getrandom` to use the browser WebCrypto API. Required for WASM targets. |
 | `tokio-websockets` | `TokioWebsocketsTransport` wrapper and the `tokio-websockets` + `tokio` dependencies. |
 | `tokio-tungstenite` | `TokioTungsteniteTransport` wrapper and the `tokio-tungstenite` + `tokio` dependencies. |
-| `embedded-io-async` | Implements `AsyncRead` / `AsyncWrite` from `embedded-io-async` on `MuxStream`. |
+| `embedded-io-async` | Implements `embedded_io_async::Read` / `Write` on `MuxStreamAsyncRead`, `MuxStreamAsyncWrite`, and `MuxStreamAsyncRW`. |
 | `embedded-nal-async` | Implements `embedded_nal_async::TcpConnect` on `ClientMux`, enabling use with `no_std` networking stacks. |
 
 ## Relationship to epoxy-server
